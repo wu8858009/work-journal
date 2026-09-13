@@ -1,0 +1,1919 @@
+/* 工作週誌 App — 應用邏輯 (vanilla JS, 無框架) */
+
+const Theme = {
+  KEY: "wj_theme",
+
+  get() {
+    const attr = document.documentElement.dataset.theme;
+    if (attr === "dark" || attr === "light") return attr;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  },
+
+  set(theme) {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem(this.KEY, theme); } catch (e) {}
+  },
+
+  toggle() {
+    this.set(this.get() === "dark" ? "light" : "dark");
+  },
+};
+
+const ICONS = {
+  doc: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke-linejoin="round"/><path d="M14 3v4h4M9 12h6M9 16h6M9 8h2"/></svg>`,
+  clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
+  gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.97 7.97 0 0 0 0-3l1.7-1.3-2-3.4-2 .6a8 8 0 0 0-2.6-1.5L14 2h-4l-.5 2.9a8 8 0 0 0-2.6 1.5l-2-.6-2 3.4L4.6 10.5a7.97 7.97 0 0 0 0 3L2.9 14.8l2 3.4 2-.6a8 8 0 0 0 2.6 1.5L10 22h4l.5-2.9a8 8 0 0 0 2.6-1.5l2 .6 2-3.4Z" stroke-linejoin="round"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m1 0-.8 12.1a1 1 0 0 1-1 1H8.8a1 1 0 0 1-1-1L7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  edit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16.5 3.5a2 2 0 0 1 3 3L7 19l-4 1 1-4Z" stroke-linejoin="round"/></svg>`,
+  close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"/></svg>`,
+  print: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke-linejoin="round"/></svg>`,
+  copy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15V5a1.5 1.5 0 0 1 1.5-1.5H15"/></svg>`,
+  chevron: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  key: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="15" r="3.2"/><path d="M10.3 12.7 18 5l2 2-1.5 1.5L20 10l-2 2-1.5-1.5L15 12" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  store: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V5h16v4M4 9l1-4M20 9l-1-4M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9M9 20v-5h6v5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  shield: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  users: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke-linecap="round"/><path d="M16 4.5a3.2 3.2 0 0 1 0 6.4M18.5 19a5 5 0 0 0-3.8-6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  eye: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke-linejoin="round"/><circle cx="12" cy="12" r="3"/></svg>`,
+  flag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 21V4a1 1 0 0 1 1-1h11l-2.5 4.5L19 12H6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  timer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="8.5"/><path d="M12 9v4l2.8 1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 1.5h6" stroke-linecap="round"/></svg>`,
+  bulb: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 21h4" stroke-linecap="round"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2Z" stroke-linejoin="round"/></svg>`,
+};
+
+const state = {
+  settings: null,
+  journals: [],
+  currentId: null,
+  view: "editor",
+  openCategoryIds: new Set(),
+  users: [],
+  passwordResetRequests: [],
+  auditLogs: [],
+  departments: [],
+  auditLogDepartmentFilter: "",
+  lightTimer: { department: "", rows: [] },
+  maintenanceSchedule: { department: "", tasks: [] },
+  maintenanceReminderShown: false,
+};
+
+const AUDIT_ACTION_LABELS = {
+  Signup: "自行註冊",
+  ApproveUser: "核准帳號",
+  CreateUser: "新增帳號",
+  DeleteUser: "刪除帳號",
+  ChangeRole: "變更角色",
+  ResetPassword: "重設密碼",
+  ForgotPassword: "忘記密碼申請",
+  ApprovePasswordReset: "核准忘記密碼申請",
+  RejectPasswordReset: "駁回忘記密碼申請",
+};
+
+function isoDate(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getDefaultWeekRange(base = new Date()) {
+  const d = new Date(base);
+  const day = d.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMonday);
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  return { start: isoDate(monday), end: isoDate(friday) };
+}
+
+function toROC(isoStr, style = "slash") {
+  if (!isoStr) return "—";
+  const d = new Date(isoStr + "T00:00:00");
+  const y = d.getFullYear() - 1911;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return style === "full" ? `${y}年${m}月${dd}日` : `${y}/${m}/${dd}`;
+}
+
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function dateUrgency(expectedDate, percent) {
+  if (!expectedDate || (Number(percent) || 0) >= 100) return "none";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(expectedDate + "T00:00:00");
+  const diffDays = Math.round((due - today) / 86400000);
+  if (diffDays < 0) return "overdue";
+  if (diffDays <= 3) return "soon";
+  return "none";
+}
+
+// 依目前月份判斷套用哪一欄季節時段：6/7/8 月為夏季、12/1/2 月為冬季，其餘為春秋季節。
+function getCurrentSeasonKey(now = new Date()) {
+  const month = now.getMonth() + 1;
+  if (month === 6 || month === 7 || month === 8) return "summer";
+  if (month === 12 || month === 1 || month === 2) return "winter";
+  return "springAutumn";
+}
+
+// 定時器的開始/結束時間是自由格式文字（例如 "18.5"、"24"），不是標準時間格式。
+// 解析成小時數（可含小數，例如 18.5 代表 18:30）；無法解析時回傳 null。
+function parseHourString(str) {
+  if (typeof str !== "string" || !str.trim()) return null;
+  const n = Number(str.trim());
+  if (Number.isNaN(n) || n < 0 || n > 24) return null;
+  return n;
+}
+
+// 依目前時間判斷這個時段現在是否應該運作中：true=開、false=關、null=時間格式無法判斷（保守不猜測）。
+function isSeasonActiveNow(startStr, endStr, now = new Date()) {
+  const start = parseHourString(startStr);
+  const end = parseHourString(endStr);
+  if (start === null || end === null) return null;
+  const currentHour = now.getHours() + now.getMinutes() / 60;
+  if (start <= end) return currentHour >= start && currentHour < end;
+  return currentHour >= start || currentHour < end; // 跨午夜的時段，例如 18.5 ～ 05
+}
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return "—";
+  const d = new Date(isoStr);
+  const y = d.getFullYear() - 1911;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}/${m}/${dd} ${hh}:${mm}`;
+}
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function newCategory(name, isCompletedSection = false) {
+  return { id: uid(), name, isCompletedSection, items: [] };
+}
+
+function newItem() {
+  return { id: uid(), item: "", assignee: "", progress: "", expectedDate: "", percent: 0, homeCategoryId: "", isPriority: false };
+}
+
+function defaultCategories() {
+  return [
+    newCategory("已完成事項", true),
+    newCategory("商店街(工務)"),
+    newCategory("委外廠商維修"),
+  ];
+}
+
+// 新週誌預設要放進哪個部門：優先用「目前餐廳」，若那間不可編輯則改用第一個可編輯的餐廳。
+function resolveDefaultDepartment() {
+  const editableDepts = getEditableDepartmentNames();
+  return editableDepts.includes(Auth.getCurrentDepartment())
+    ? Auth.getCurrentDepartment()
+    : editableDepts[0] || state.settings.defaultDepartment;
+}
+
+function buildNewJournal(overrides = {}) {
+  const range = getDefaultWeekRange();
+  return {
+    id: uid(),
+    department: resolveDefaultDepartment(),
+    periodStart: range.start,
+    periodEnd: range.end,
+    categories: defaultCategories(),
+    ...overrides,
+  };
+}
+
+function getCurrentJournal() {
+  return state.journals.find((j) => j.id === state.currentId) || null;
+}
+
+function canEditJournal(j) {
+  if (!j) return false;
+  return Auth.canEditDepartment(j.department);
+}
+
+// 目前帳號可以「編輯」的餐廳名稱清單：管理員看全部餐廳，一般使用者只看自己被指派且可編輯的餐廳。
+function getEditableDepartmentNames() {
+  if (Auth.isAdmin()) return state.departments.map((d) => d.name);
+  return Auth.getMyDepartments().filter((d) => d.canEdit).map((d) => d.departmentName);
+}
+
+// 是否至少有一間可編輯的餐廳（管理員一律可以；一般使用者需至少一間 CanEdit=true 的指派）。
+function canCreateNewJournal() {
+  return Auth.isAdmin() || Auth.getMyDepartments().some((d) => d.canEdit);
+}
+
+function categoryPercent(cat) {
+  if (!cat.items.length) return 0;
+  return Math.round(cat.items.reduce((s, i) => s + (Number(i.percent) || 0), 0) / cat.items.length);
+}
+
+function journalPercent(journal) {
+  const allItems = journal.categories.flatMap((c) => c.items);
+  if (!allItems.length) return 0;
+  return Math.round(allItems.reduce((s, i) => s + (Number(i.percent) || 0), 0) / allItems.length);
+}
+
+function percentClass(p) {
+  if (p >= 100) return "pct-done";
+  if (p > 0) return "pct-progress";
+  return "pct-none";
+}
+
+async function persistCurrent() {
+  const j = getCurrentJournal();
+  if (!j) return;
+  await Store.saveJournal(j);
+}
+
+// ---------------- Render ----------------
+
+function render() {
+  document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
+  const root = document.getElementById("view-root");
+  const headerSub = document.getElementById("header-sub");
+  const exportBtn = document.getElementById("export-btn");
+  exportBtn.classList.toggle("hidden", state.view !== "editor" && state.view !== "timers" && state.view !== "maintenance");
+  document.getElementById("fab-add-item").classList.toggle("hidden", state.view !== "editor" || !canEditJournal(getCurrentJournal()));
+  document.getElementById("header-title").textContent = state.settings.companyName;
+
+  if (state.view === "editor") {
+    headerSub.textContent = "工作週誌";
+    root.innerHTML = renderEditor();
+  } else if (state.view === "history") {
+    headerSub.textContent = "歷史紀錄";
+    root.innerHTML = renderHistory();
+  } else if (state.view === "timers") {
+    headerSub.textContent = "定時器";
+    root.innerHTML = renderTimers();
+  } else if (state.view === "maintenance") {
+    headerSub.textContent = "保養排程";
+    root.innerHTML = renderMaintenance();
+  } else {
+    headerSub.textContent = "設定";
+    root.innerHTML = renderSettings();
+  }
+}
+
+function renderEditor() {
+  const j = getCurrentJournal();
+  if (!j) {
+    return `<div class="empty-state">
+      <p>目前沒有週誌資料</p>
+      ${canCreateNewJournal() ? `<button class="btn btn-primary" data-action="new-journal">${ICONS.plus}<span>建立本週週誌</span></button>` : ""}
+    </div>`;
+  }
+
+  const editable = canEditJournal(j);
+  const overall = journalPercent(j);
+
+  const catsHtml = j.categories.map((cat) => {
+    const pct = categoryPercent(cat);
+    const itemsHtml = cat.items.length
+      ? cat.items.map((it, idx) => itemRowHtml(cat, it, idx)).join("")
+      : `<div class="cat-empty">尚無項目</div>`;
+    return `
+    <section class="card category-card" data-cat-id="${cat.id}">
+      <header class="cat-header">
+        <div class="cat-title">
+          <span class="cat-name">${escapeHtml(cat.name)}</span>
+          ${cat.isCompletedSection ? '<span class="badge badge-soft">完成區</span>' : ""}
+        </div>
+        <div class="cat-header-right">
+          <span class="pct-chip ${percentClass(pct)}">${pct}%</span>
+          ${editable ? `
+          <button class="icon-btn" data-action="rename-category" data-cat="${cat.id}" title="重新命名">${ICONS.edit}</button>
+          <button class="icon-btn icon-btn-danger" data-action="delete-category" data-cat="${cat.id}" title="刪除類別">${ICONS.trash}</button>` : ""}
+        </div>
+      </header>
+      <div class="cat-items">${itemsHtml}</div>
+    </section>`;
+  }).join("");
+
+  // 這個下拉選單是「切換目前餐廳」的捷徑（跟設定頁的「目前餐廳」是同一組邏輯/同一個
+  // data-action），選別的餐廳會直接換去看那間餐廳自己的週誌，不是把這份週誌改歸屬到別的餐廳。
+  const myDepartmentNames = Auth.isAdmin() ? state.departments.map((d) => d.name) : Auth.getMyDepartments().map((d) => d.departmentName);
+  const departmentOptions = Array.from(new Set([j.department, ...myDepartmentNames].filter(Boolean)));
+
+  return `
+  ${!editable ? `<p class="settings-note">此餐廳僅開放查看，無法編輯。</p>` : ""}
+  <div class="journal-meta card">
+    <div class="meta-row">
+      <label class="meta-label">部門</label>
+      <select class="meta-input field-select" data-action="switch-department" id="editor-department-select">
+        ${departmentOptions.map((name) => `<option value="${escapeHtml(name)}" ${name === j.department ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="meta-row meta-row-dates">
+      <label class="meta-label">期間</label>
+      <input class="meta-input" type="date" value="${j.periodStart}" data-field="periodStart" ${editable ? "" : "disabled"} />
+      <span class="meta-sep">～</span>
+      <input class="meta-input" type="date" value="${j.periodEnd}" data-field="periodEnd" ${editable ? "" : "disabled"} />
+    </div>
+    <div class="meta-roc">${toROC(j.periodStart)} ～ ${toROC(j.periodEnd)}（民國）</div>
+    <div class="overall-row">
+      <div class="overall-bar"><div class="overall-bar-fill" style="width:${overall}%"></div></div>
+      <span class="overall-label">整體完成度 ${overall}%</span>
+    </div>
+  </div>
+  ${catsHtml}
+  ${editable ? `<button class="add-category-btn" data-action="add-category">${ICONS.plus}<span>新增類別</span></button>` : ""}
+  `;
+}
+
+function itemRowHtml(cat, it, idx) {
+  const pct = Number(it.percent) || 0;
+  const urgency = dateUrgency(it.expectedDate, pct);
+  const urgencyClass = urgency === "overdue" ? "urgent-overdue" : urgency === "soon" ? "urgent-soon" : "";
+  const urgencyLabel = urgency === "overdue" ? "（逾期）" : urgency === "soon" ? "（即將到期）" : "";
+  return `
+  <div class="item-row ${it.isPriority ? "item-priority" : ""}" data-action="edit-item" data-cat="${cat.id}" data-item="${it.id}">
+    <div class="item-seq">${idx + 1}</div>
+    <div class="item-main">
+      <div class="item-title">${it.isPriority ? '<span class="badge badge-priority">優先</span>' : ""}${escapeHtml(it.item) || "（未命名項目）"}</div>
+      ${it.progress ? `<div class="item-progress">${escapeHtml(it.progress)}</div>` : ""}
+      <div class="item-meta">
+        ${it.assignee ? `<span class="item-assignee">負責人：${escapeHtml(it.assignee)}</span>` : ""}
+        ${it.expectedDate ? `<span class="item-date ${urgencyClass}">預計 ${toROC(it.expectedDate)}${urgencyLabel}</span>` : ""}
+      </div>
+    </div>
+    <div class="item-right">
+      <button class="icon-btn priority-toggle-btn ${it.isPriority ? "priority-toggle-active" : ""}" data-action="toggle-item-priority" data-cat="${cat.id}" data-item="${it.id}" title="${it.isPriority ? "取消優先處理" : "標記為優先處理"}">${ICONS.flag}</button>
+      <span class="pct-chip ${percentClass(pct)}">${pct}%</span>
+      ${ICONS.chevron}
+    </div>
+  </div>`;
+}
+
+// 依「目前餐廳」篩選卡片顯示的資料；沒有選定餐廳（例如管理員略過）時顯示全部。
+function getJournalsForCurrentDepartment() {
+  const current = Auth.getCurrentDepartment();
+  return current ? state.journals.filter((j) => j.department === current) : state.journals;
+}
+
+function renderHistory() {
+  const journals = getJournalsForCurrentDepartment();
+  if (!journals.length) {
+    return `<div class="empty-state"><p>${Auth.getCurrentDepartment() ? "此餐廳尚無歷史紀錄" : "尚無歷史紀錄"}</p></div>`;
+  }
+  const cards = journals.map((j) => {
+    const pct = journalPercent(j);
+    const active = j.id === state.currentId ? "history-active" : "";
+    const editable = canEditJournal(j);
+    return `
+    <div class="card history-card ${active}">
+      <div class="history-main" data-action="open-journal" data-id="${j.id}">
+        <div class="history-top">
+          <span class="history-dept">${escapeHtml(j.department)}${editable ? "" : ' <span class="badge badge-soft">僅查看</span>'}</span>
+          <span class="pct-chip ${percentClass(pct)}">${pct}%</span>
+        </div>
+        <div class="history-period">${toROC(j.periodStart)} ～ ${toROC(j.periodEnd)}</div>
+      </div>
+      ${editable ? `
+      <div class="history-actions">
+        <button class="icon-btn" data-action="duplicate-journal" data-id="${j.id}" title="建立下週(複製未完成)">${ICONS.copy}</button>
+        <button class="icon-btn icon-btn-danger" data-action="delete-journal" data-id="${j.id}" title="刪除">${ICONS.trash}</button>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+  return `
+  ${canCreateNewJournal() ? `<button class="add-category-btn" data-action="new-journal">${ICONS.plus}<span>新增本週週誌</span></button>` : ""}
+  ${cards}`;
+}
+
+function renderTimers() {
+  const dept = Auth.getCurrentDepartment();
+  if (!dept) {
+    return `<div class="empty-state"><p>請先選擇餐廳</p></div>`;
+  }
+
+  const canManage = Auth.isAdmin();
+  const rows = state.lightTimer.rows || [];
+  const now = new Date();
+  const currentSeasonKey = getCurrentSeasonKey(now);
+
+  const seasons = [
+    { key: "summer", label: "夏季", pillClass: "timer-pill-summer", start: "summerStart", end: "summerEnd" },
+    { key: "springAutumn", label: "春秋季節", pillClass: "timer-pill-spring", start: "springAutumnStart", end: "springAutumnEnd" },
+    { key: "winter", label: "冬季節", pillClass: "timer-pill-winter", start: "winterStart", end: "winterEnd" },
+  ];
+
+  const cards = rows.map((r) => {
+    const current = seasons.find((s) => s.key === currentSeasonKey);
+    const isOn = isSeasonActiveNow(r[current.start], r[current.end], now);
+    const cardStateClass = isOn === true ? "timer-card-on" : isOn === false ? "timer-card-off" : "";
+    const statusBadge = isOn === true
+      ? `<span class="badge timer-status-badge timer-status-on"><span class="timer-status-dot"></span>運作中</span>`
+      : isOn === false
+      ? `<span class="badge timer-status-badge timer-status-off"><span class="timer-status-dot"></span>已關閉</span>`
+      : "";
+
+    const seasonsHtml = seasons.map((s) => `
+      <div class="timer-season-row ${s.key === currentSeasonKey ? "timer-season-row-current" : ""}">
+        <span class="timer-season-pill ${s.pillClass}">${s.label}</span>
+        <span class="timer-season-range">${escapeHtml(r[s.start])} ～ ${escapeHtml(r[s.end])}</span>
+      </div>`).join("");
+
+    return `
+    <div class="card timer-card ${cardStateClass}">
+      <div class="timer-card-header">
+        <div class="timer-card-title">
+          <span class="timer-status-icon">${ICONS.bulb}</span>
+          <span class="timer-location-name">${escapeHtml(r.location) || "（未命名地點）"}</span>
+        </div>
+        <div class="cat-header-right">
+          ${statusBadge}
+          ${canManage ? `
+          <button class="icon-btn" data-action="edit-timer" data-id="${r.id}" title="編輯">${ICONS.edit}</button>
+          <button class="icon-btn icon-btn-danger" data-action="delete-timer" data-id="${r.id}" title="刪除">${ICONS.trash}</button>` : ""}
+        </div>
+      </div>
+      <div class="timer-seasons-list">${seasonsHtml}</div>
+      ${r.note ? `<div class="timer-note">備註：${escapeHtml(r.note)}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  return `
+  <p class="settings-note timer-legend">目前季節：${escapeHtml(seasons.find((s) => s.key === currentSeasonKey).label)}（6/7/8 月為夏季、12/1/2 月為冬季，其餘為春秋季節）；運作狀態依此欄位的時間自動判斷，時間格式無法辨識時不顯示狀態。</p>
+  ${canManage ? `<button class="add-category-btn" data-action="add-timer">${ICONS.plus}<span>新增地點</span></button>` : ""}
+  ${rows.length ? cards : `<div class="empty-state"><p>尚無定時器資料</p></div>`}`;
+}
+
+// ---------------- Modal: Light timer (Admin only) ----------------
+
+function openTimerModal(id) {
+  const rows = state.lightTimer.rows || [];
+  const isNew = !id;
+  const r = isNew
+    ? { id: "", location: "", summerStart: "", summerEnd: "", springAutumnStart: "", springAutumnEnd: "", winterStart: "", winterEnd: "", note: "" }
+    : rows.find((x) => x.id === id);
+  if (!r) return;
+
+  const modal = document.getElementById("modal-timer");
+  modal.dataset.id = isNew ? "" : id;
+  modal.querySelector("#timer-modal-title").textContent = isNew ? "新增地點" : "編輯地點";
+  modal.querySelector("#timer-field-location").value = r.location;
+  modal.querySelector("#timer-field-summer-start").value = r.summerStart;
+  modal.querySelector("#timer-field-summer-end").value = r.summerEnd;
+  modal.querySelector("#timer-field-spring-start").value = r.springAutumnStart;
+  modal.querySelector("#timer-field-spring-end").value = r.springAutumnEnd;
+  modal.querySelector("#timer-field-winter-start").value = r.winterStart;
+  modal.querySelector("#timer-field-winter-end").value = r.winterEnd;
+  modal.querySelector("#timer-field-note").value = r.note;
+  showModal(modal);
+  requestAnimationFrame(() => modal.querySelector("#timer-field-location").focus());
+}
+
+async function saveTimerModal() {
+  const modal = document.getElementById("modal-timer");
+  const id = modal.dataset.id;
+  const isNew = !id;
+
+  const location = modal.querySelector("#timer-field-location").value.trim();
+  if (!location) {
+    alert("請輸入地點名稱");
+    return;
+  }
+
+  const data = {
+    id: isNew ? uid() : id,
+    location,
+    summerStart: modal.querySelector("#timer-field-summer-start").value.trim(),
+    summerEnd: modal.querySelector("#timer-field-summer-end").value.trim(),
+    springAutumnStart: modal.querySelector("#timer-field-spring-start").value.trim(),
+    springAutumnEnd: modal.querySelector("#timer-field-spring-end").value.trim(),
+    winterStart: modal.querySelector("#timer-field-winter-start").value.trim(),
+    winterEnd: modal.querySelector("#timer-field-winter-end").value.trim(),
+    note: modal.querySelector("#timer-field-note").value.trim(),
+  };
+
+  const rows = state.lightTimer.rows || [];
+  if (isNew) {
+    rows.push(data);
+  } else {
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx >= 0) rows[idx] = data;
+  }
+  state.lightTimer.rows = rows;
+  await persistLightTimer();
+  closeModal(modal);
+  render();
+}
+
+async function handleDeleteTimer(id) {
+  if (!confirm("確定要刪除這個地點的定時器設定嗎？")) return;
+  state.lightTimer.rows = (state.lightTimer.rows || []).filter((r) => r.id !== id);
+  await persistLightTimer();
+  render();
+}
+
+async function persistLightTimer() {
+  const dept = Auth.getCurrentDepartment();
+  if (!dept) return;
+  await Store.saveLightTimer(dept, { department: dept, rows: state.lightTimer.rows || [] });
+}
+
+function renderMaintenance() {
+  const dept = Auth.getCurrentDepartment();
+  if (!dept) {
+    return `<div class="empty-state"><p>請先選擇餐廳</p></div>`;
+  }
+
+  const canManage = Auth.isAdmin();
+  const tasks = state.maintenanceSchedule.tasks || [];
+  const currentMonth = new Date().getMonth() + 1;
+  const dueThisMonth = tasks.filter((t) => (t.activeMonths || []).includes(currentMonth)).length;
+
+  const cards = tasks.map((t, idx) => {
+    const activeMonths = new Set(t.activeMonths || []);
+    const isDueThisMonth = activeMonths.has(currentMonth);
+
+    const monthPills = Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const active = activeMonths.has(m);
+      const cls = ["maintenance-month-pill"];
+      if (active) cls.push("maintenance-month-pill-active");
+      if (m === currentMonth) cls.push("maintenance-month-pill-current");
+      return `<span class="${cls.join(" ")}">${m}</span>`;
+    }).join("");
+
+    return `
+    <div class="card maintenance-card">
+      <div class="maintenance-card-header">
+        <div class="maintenance-card-title">
+          <span class="maintenance-seq">${idx + 1}</span>
+          <span class="maintenance-name">${escapeHtml(t.name) || "（未命名項目）"}</span>
+        </div>
+        <div class="cat-header-right">
+          ${isDueThisMonth ? `<span class="badge timer-status-badge timer-status-on"><span class="timer-status-dot"></span>本月執行</span>` : ""}
+          ${canManage ? `
+          <button class="icon-btn" data-action="edit-maintenance" data-id="${t.id}" title="編輯">${ICONS.edit}</button>
+          <button class="icon-btn icon-btn-danger" data-action="delete-maintenance" data-id="${t.id}" title="刪除">${ICONS.trash}</button>` : ""}
+        </div>
+      </div>
+      <div class="maintenance-meta-row">
+        ${t.frequencyLabel ? `<span class="timer-season-pill maintenance-freq-pill">${escapeHtml(t.frequencyLabel)}</span>` : ""}
+        ${t.timesPerYear ? `<span class="maintenance-times">${escapeHtml(t.timesPerYear)}</span>` : ""}
+        ${t.monthsText ? `<span class="maintenance-months-text">${escapeHtml(t.monthsText)}</span>` : ""}
+      </div>
+      <div class="maintenance-month-pills">${monthPills}</div>
+    </div>`;
+  }).join("");
+
+  return `
+  <p class="settings-note timer-legend">目前月份：${currentMonth} 月・共 ${tasks.length} 項保養作業，本月應執行 ${dueThisMonth} 項</p>
+  ${canManage ? `<button class="add-category-btn" data-action="add-maintenance">${ICONS.plus}<span>新增保養項目</span></button>` : ""}
+  ${tasks.length ? cards : `<div class="empty-state"><p>尚無保養排程資料</p></div>`}`;
+}
+
+// ---------------- Modal: Maintenance schedule (Admin only) ----------------
+
+function renderMonthToggleGrid(container, activeMonths) {
+  const active = new Set(activeMonths || []);
+  container.innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    return `<button type="button" class="month-toggle-btn ${active.has(m) ? "active" : ""}" data-month="${m}">${m}</button>`;
+  }).join("");
+  container.querySelectorAll(".month-toggle-btn").forEach((btn) => {
+    btn.addEventListener("click", () => btn.classList.toggle("active"));
+  });
+}
+
+function readMonthToggleGrid(container) {
+  return Array.from(container.querySelectorAll(".month-toggle-btn.active"))
+    .map((btn) => Number(btn.dataset.month))
+    .sort((a, b) => a - b);
+}
+
+function openMaintenanceModal(id) {
+  const tasks = state.maintenanceSchedule.tasks || [];
+  const isNew = !id;
+  const t = isNew
+    ? { id: "", name: "", frequencyLabel: "", timesPerYear: "", monthsText: "", activeMonths: [] }
+    : tasks.find((x) => x.id === id);
+  if (!t) return;
+
+  const modal = document.getElementById("modal-maintenance");
+  modal.dataset.id = isNew ? "" : id;
+  modal.querySelector("#maintenance-modal-title").textContent = isNew ? "新增保養項目" : "編輯保養項目";
+  modal.querySelector("#maintenance-field-name").value = t.name;
+  modal.querySelector("#maintenance-field-frequency").value = t.frequencyLabel;
+  modal.querySelector("#maintenance-field-times").value = t.timesPerYear;
+  modal.querySelector("#maintenance-field-months-text").value = t.monthsText;
+  renderMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"), t.activeMonths);
+  showModal(modal);
+  requestAnimationFrame(() => modal.querySelector("#maintenance-field-name").focus());
+}
+
+async function saveMaintenanceModal() {
+  const modal = document.getElementById("modal-maintenance");
+  const id = modal.dataset.id;
+  const isNew = !id;
+
+  const name = modal.querySelector("#maintenance-field-name").value.trim();
+  if (!name) {
+    alert("請輸入項目名稱");
+    return;
+  }
+
+  const activeMonths = readMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"));
+  const monthsTextInput = modal.querySelector("#maintenance-field-months-text").value.trim();
+
+  const data = {
+    id: isNew ? uid() : id,
+    name,
+    frequencyLabel: modal.querySelector("#maintenance-field-frequency").value.trim(),
+    timesPerYear: modal.querySelector("#maintenance-field-times").value.trim(),
+    monthsText: monthsTextInput || (activeMonths.length ? `${activeMonths.join("、")}月` : ""),
+    activeMonths,
+  };
+
+  const tasks = state.maintenanceSchedule.tasks || [];
+  if (isNew) {
+    tasks.push(data);
+  } else {
+    const idx = tasks.findIndex((x) => x.id === id);
+    if (idx >= 0) tasks[idx] = data;
+  }
+  state.maintenanceSchedule.tasks = tasks;
+  await persistMaintenanceSchedule();
+  closeModal(modal);
+  render();
+}
+
+async function handleDeleteMaintenance(id) {
+  if (!confirm("確定要刪除這個保養項目嗎？")) return;
+  state.maintenanceSchedule.tasks = (state.maintenanceSchedule.tasks || []).filter((t) => t.id !== id);
+  await persistMaintenanceSchedule();
+  render();
+}
+
+async function persistMaintenanceSchedule() {
+  const dept = Auth.getCurrentDepartment();
+  if (!dept) return;
+  await Store.saveMaintenanceSchedule(dept, { department: dept, tasks: state.maintenanceSchedule.tasks || [] });
+}
+
+// 每次切換到「保養排程」頁面（同一次登入內只跳一次），跳出提醒視窗列出本月需執行的項目。
+function maybeShowMaintenanceReminder() {
+  if (state.maintenanceReminderShown) return;
+  state.maintenanceReminderShown = true;
+
+  const currentMonth = new Date().getMonth() + 1;
+  const dueTasks = (state.maintenanceSchedule.tasks || []).filter((t) => (t.activeMonths || []).includes(currentMonth));
+  if (!dueTasks.length) return;
+
+  const modal = document.getElementById("modal-maintenance-reminder");
+  modal.querySelector("#maintenance-reminder-title").textContent = `${currentMonth} 月保養提醒`;
+  modal.querySelector("#maintenance-reminder-intro").textContent = `以下 ${dueTasks.length} 項本月需要執行保養：`;
+  modal.querySelector("#maintenance-reminder-list").innerHTML = dueTasks.map((t) => `<li>${escapeHtml(t.name) || "（未命名項目）"}</li>`).join("");
+  showModal(modal);
+}
+
+function renderSettings() {
+  const s = state.settings;
+  const user = Auth.getUser();
+
+  const usersHtml = Auth.isAdmin() ? `
+  <div class="card settings-card">
+    <div class="settings-section-header">
+      <div class="settings-section-heading">
+        <span class="settings-section-title">${ICONS.users}帳號與權限管理</span>
+        <p class="settings-section-subtitle">設定角色，以及每個帳號可存取哪些餐廳、能否編輯</p>
+      </div>
+      <button class="icon-btn" data-action="add-user" title="新增帳號">${ICONS.plus}</button>
+    </div>
+    ${state.users.map((u) => `
+      <div class="user-row">
+        <div class="user-row-main">
+          <div class="user-row-name">${escapeHtml(u.displayName)}<span class="badge ${u.role === "Admin" ? "badge-role-admin" : "badge-role-user"}">${u.role === "Admin" ? "管理員" : "一般使用者"}</span>${!u.isApproved ? '<span class="badge badge-warning">待審核</span>' : ""}</div>
+          <div class="user-row-username">帳號：${escapeHtml(u.username)}</div>
+          <div class="dept-permission-chips">
+            ${u.departments && u.departments.length
+              ? u.departments.map((d) => `<span class="dept-permission-chip ${d.canEdit ? "" : "dept-permission-chip-view"}">${d.canEdit ? ICONS.edit : ICONS.eye}${escapeHtml(d.departmentName)}</span>`).join("")
+              : `<span class="dept-permission-chip dept-permission-chip-empty">尚未指派餐廳</span>`}
+          </div>
+        </div>
+        <div class="user-row-actions">
+          ${!u.isApproved ? `<button class="btn btn-primary user-approve-btn" data-action="approve-user" data-id="${u.id}">核准</button>` : ""}
+          <select class="field-input field-select user-role-select" data-action="change-role" data-id="${u.id}">
+            <option value="User" ${u.role === "User" ? "selected" : ""}>一般使用者</option>
+            <option value="Admin" ${u.role === "Admin" ? "selected" : ""}>管理員</option>
+          </select>
+          <button class="icon-btn" data-action="manage-user-departments" data-id="${u.id}" title="餐廳權限">${ICONS.store}</button>
+          <button class="icon-btn" data-action="reset-password" data-id="${u.id}" title="重設密碼">${ICONS.key}</button>
+          <button class="icon-btn icon-btn-danger" data-action="delete-user" data-id="${u.id}" title="刪除">${ICONS.trash}</button>
+        </div>
+      </div>`).join("")}
+  </div>` : "";
+
+  const departmentsHtml = Auth.isAdmin() ? `
+  <div class="card settings-card">
+    <div class="settings-section-header">
+      <div class="settings-section-heading">
+        <span class="settings-section-title">${ICONS.store}餐廳管理</span>
+        <p class="settings-section-subtitle">維護可供登入畫面選擇的餐廳清單</p>
+      </div>
+      <button class="icon-btn" data-action="add-department" title="新增餐廳">${ICONS.plus}</button>
+    </div>
+    ${state.departments.map((d) => `
+      <div class="user-row">
+        <div class="user-row-main"><div class="user-row-name">${escapeHtml(d.name)}</div></div>
+        <div class="user-row-actions">
+          <button class="icon-btn" data-action="rename-department" data-id="${d.id}" data-name="${escapeHtml(d.name)}" title="重新命名">${ICONS.edit}</button>
+          <button class="icon-btn icon-btn-danger" data-action="delete-department" data-id="${d.id}" title="刪除">${ICONS.trash}</button>
+        </div>
+      </div>`).join("") || `<p class="cat-empty">尚無餐廳，請先新增</p>`}
+  </div>` : "";
+
+  // 系統管理員不受餐廳綁定限制，切換選單顯示全部餐廳；一般使用者僅顯示自己被指派的餐廳。
+  const myDepartmentNames = Auth.isAdmin() ? state.departments.map((d) => d.name) : Auth.getMyDepartments().map((d) => d.departmentName);
+  const currentDepartmentHtml = myDepartmentNames.length > 1 ? `
+    <div class="meta-row">
+      <label class="meta-label">目前餐廳</label>
+      <select class="field-input field-select" data-action="switch-department" id="current-department-select">
+        ${myDepartmentNames.map((d) => `<option value="${escapeHtml(d)}" ${d === Auth.getCurrentDepartment() ? "selected" : ""}>${escapeHtml(d)}</option>`).join("")}
+      </select>
+    </div>` : "";
+
+  const resetRequestsHtml = Auth.isAdmin() && state.passwordResetRequests.length ? `
+  <div class="card settings-card">
+    <div class="settings-section-header">
+      <div class="settings-section-heading">
+        <span class="settings-section-title">${ICONS.key}忘記密碼申請</span>
+        <p class="settings-section-subtitle">待處理的使用者忘記密碼申請</p>
+      </div>
+    </div>
+    ${state.passwordResetRequests.map((r) => `
+      <div class="user-row">
+        <div class="user-row-main">
+          <div class="user-row-name">${escapeHtml(r.displayName)}</div>
+          <div class="user-row-username">帳號：${escapeHtml(r.username)}</div>
+        </div>
+        <div class="user-row-actions">
+          <button class="btn btn-primary user-approve-btn" data-action="approve-reset-request" data-id="${r.id}">設定新密碼</button>
+          <button class="icon-btn icon-btn-danger" data-action="reject-reset-request" data-id="${r.id}" title="駁回">${ICONS.trash}</button>
+        </div>
+      </div>`).join("")}
+  </div>` : "";
+
+  const auditDeptFilter = state.auditLogDepartmentFilter;
+  const filteredAuditLogs = auditDeptFilter
+    ? state.auditLogs.filter((l) => l.department && l.department.split("、").includes(auditDeptFilter))
+    : state.auditLogs;
+
+  const auditHtml = Auth.isAdmin() ? `
+  <div class="card settings-card">
+    <div class="settings-section-header">
+      <div class="settings-section-heading">
+        <span class="settings-section-title">${ICONS.clock}操作紀錄</span>
+        <p class="settings-section-subtitle">系統帳號與權限相關異動的歷史紀錄</p>
+      </div>
+      <select class="field-input field-select audit-dept-filter" data-action="filter-audit-department">
+        <option value="">全部餐廳</option>
+        ${state.departments.map((d) => `<option value="${escapeHtml(d.name)}" ${d.name === auditDeptFilter ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="audit-log-list">
+      ${filteredAuditLogs.length ? filteredAuditLogs.map((l) => `
+        <div class="audit-log-row">
+          <div class="audit-log-main">
+            <span class="audit-log-action">${escapeHtml(AUDIT_ACTION_LABELS[l.action] || l.action)}</span>
+            ${l.targetDescription ? `<span class="audit-log-target">${escapeHtml(l.targetDescription)}</span>` : ""}
+            ${l.department ? `<span class="badge badge-soft">${escapeHtml(l.department)}</span>` : ""}
+          </div>
+          <div class="audit-log-meta">
+            <span>${escapeHtml(l.actorUsername || "系統")}</span>
+            <span>${formatDateTime(l.createdAt)}</span>
+          </div>
+        </div>`).join("") : `<p class="cat-empty">${auditDeptFilter ? "此餐廳尚無相關紀錄" : "尚無紀錄"}</p>`}
+    </div>
+  </div>` : "";
+
+  const companySettingsHtml = Auth.isAdmin() ? `
+  <div class="card settings-card">
+    <div class="settings-section-header">
+      <div class="settings-section-heading">
+        <span class="settings-section-title">${ICONS.gear}系統設定</span>
+        <p class="settings-section-subtitle">套用於整個系統的基本資訊</p>
+      </div>
+    </div>
+    <div class="meta-row">
+      <label class="meta-label">公司名稱</label>
+      <input class="meta-input" type="text" value="${escapeHtml(s.companyName)}" data-setting="companyName" />
+    </div>
+    <div class="meta-row">
+      <label class="meta-label">預設部門</label>
+      <input class="meta-input" type="text" value="${escapeHtml(s.defaultDepartment)}" data-setting="defaultDepartment" />
+    </div>
+  </div>` : "";
+
+  const pendingUserCount = state.users.filter((u) => !u.isApproved).length;
+  const adminPanelHtml = Auth.isAdmin() ? `
+  <div class="admin-panel">
+    <div class="admin-panel-header">
+      ${ICONS.shield}
+      <div>
+        <div class="admin-panel-title">系統管理員</div>
+        <div class="admin-panel-subtitle">帳號、權限與系統紀錄的集中管理</div>
+      </div>
+    </div>
+    <div class="admin-stats-grid">
+      <div class="admin-stat-tile"><span class="admin-stat-value">${state.users.length}</span><span class="admin-stat-label">帳號總數</span></div>
+      <div class="admin-stat-tile ${pendingUserCount ? "admin-stat-tile-warning" : ""}"><span class="admin-stat-value">${pendingUserCount}</span><span class="admin-stat-label">待審核帳號</span></div>
+      <div class="admin-stat-tile"><span class="admin-stat-value">${state.departments.length}</span><span class="admin-stat-label">餐廳數</span></div>
+      <div class="admin-stat-tile ${state.passwordResetRequests.length ? "admin-stat-tile-warning" : ""}"><span class="admin-stat-value">${state.passwordResetRequests.length}</span><span class="admin-stat-label">待處理密碼申請</span></div>
+    </div>
+    ${companySettingsHtml}
+    ${usersHtml}
+    ${departmentsHtml}
+    ${resetRequestsHtml}
+    ${auditHtml}
+  </div>` : "";
+
+  return `
+  <div class="card settings-card">
+    <div class="meta-row">
+      <label class="meta-label">登入帳號</label>
+      <span class="meta-input">${escapeHtml(user ? (user.displayName || user.username) : "—")}</span>
+    </div>
+    ${currentDepartmentHtml}
+    <button class="btn btn-ghost logout-btn" data-action="logout">登出</button>
+  </div>
+  ${adminPanelHtml}
+  <p class="settings-note">資料儲存於公司後端資料庫，登入後可跨裝置同步。</p>
+  `;
+}
+
+// ---------------- Modal: Item ----------------
+
+function openItemModal(catId, itemId) {
+  const j = getCurrentJournal();
+  if (!j.categories.length) {
+    alert("請先新增類別，才能新增項目");
+    return;
+  }
+  const resolvedCatId = catId || j.categories[0].id;
+  const cat = j.categories.find((c) => c.id === resolvedCatId);
+  const isNew = !itemId;
+  const it = isNew ? newItem() : cat.items.find((i) => i.id === itemId);
+
+  const modal = document.getElementById("modal-item");
+  modal.dataset.cat = resolvedCatId;
+  modal.dataset.item = isNew ? "" : itemId;
+  modal.dataset.home = it.homeCategoryId || resolvedCatId;
+
+  const catSelect = modal.querySelector("#item-field-category");
+  catSelect.innerHTML = j.categories
+    .map((c) => `<option value="${c.id}" data-completed="${c.isCompletedSection ? "1" : "0"}">${escapeHtml(c.name)}</option>`)
+    .join("");
+  catSelect.value = resolvedCatId;
+
+  modal.querySelector("#item-field-name").value = it.item;
+  modal.querySelector("#item-field-assignee").value = it.assignee || "";
+  modal.querySelector("#item-field-progress").value = it.progress;
+  modal.querySelector("#item-field-date").value = it.expectedDate;
+  modal.querySelector("#item-field-percent").value = String(Math.round((Number(it.percent) || 0) / 10) * 10);
+  modal.querySelector("#item-field-priority").checked = !!it.isPriority;
+
+  const editable = canEditJournal(j);
+  modal.querySelector("#item-modal-title").textContent = (isNew ? "新增項目" : "編輯項目") + (editable ? "" : "（唯讀）");
+  ["item-field-category", "item-field-name", "item-field-assignee", "item-field-progress", "item-field-date", "item-field-percent", "item-field-priority"]
+    .forEach((fieldId) => { modal.querySelector(`#${fieldId}`).disabled = !editable; });
+  modal.querySelector("#item-delete-btn").classList.toggle("hidden", isNew || !editable);
+  modal.querySelector("#item-save-btn").classList.toggle("hidden", !editable);
+  applyPercentCategoryLock(modal);
+  if (!editable) modal.querySelector("#item-field-category").disabled = true;
+  showModal(modal);
+  if (editable) {
+    requestAnimationFrame(() => modal.querySelector("#item-field-name").focus());
+  }
+}
+
+function applyPercentCategoryLock(modal) {
+  const percentSelect = modal.querySelector("#item-field-percent");
+  const catSelect = modal.querySelector("#item-field-category");
+  const options = Array.from(catSelect.options);
+  const completedOption = options.find((o) => o.dataset.completed === "1");
+  if (Number(percentSelect.value) >= 100 && completedOption) {
+    catSelect.value = completedOption.value;
+    catSelect.disabled = true;
+  } else {
+    catSelect.disabled = false;
+    // Only auto-jump back when the select is currently sitting on the completed
+    // category (i.e. percent just dropped below 100) — don't clobber a category
+    // the user deliberately picked while editing a non-completed item.
+    if (completedOption && catSelect.value === completedOption.value) {
+      const homeId = modal.dataset.home;
+      const homeOption = options.find((o) => o.value === homeId && o.dataset.completed !== "1");
+      const fallbackOption = options.find((o) => o.dataset.completed !== "1");
+      if (homeOption) catSelect.value = homeOption.value;
+      else if (fallbackOption) catSelect.value = fallbackOption.value;
+    }
+  }
+}
+
+function closeModal(modal) {
+  modal.classList.remove("open");
+}
+function showModal(modal) {
+  modal.classList.add("open");
+}
+
+async function saveItemModal() {
+  const modal = document.getElementById("modal-item");
+  const originalCatId = modal.dataset.cat;
+  const itemId = modal.dataset.item;
+  let targetCatId = modal.querySelector("#item-field-category").value;
+  const j = getCurrentJournal();
+  if (!canEditJournal(j)) return;
+  const originalCat = j.categories.find((c) => c.id === originalCatId);
+
+  const data = {
+    item: modal.querySelector("#item-field-name").value.trim(),
+    assignee: modal.querySelector("#item-field-assignee").value.trim(),
+    progress: modal.querySelector("#item-field-progress").value.trim(),
+    expectedDate: modal.querySelector("#item-field-date").value,
+    percent: Math.max(0, Math.min(100, Number(modal.querySelector("#item-field-percent").value) || 0)),
+    isPriority: modal.querySelector("#item-field-priority").checked,
+  };
+
+  if (!data.item) {
+    alert("請輸入工作項目名稱");
+    return;
+  }
+
+  if (data.percent < 100) {
+    data.homeCategoryId = targetCatId;
+  } else {
+    const completedCat = j.categories.find((c) => c.isCompletedSection);
+    if (completedCat) targetCatId = completedCat.id;
+    if (!itemId) {
+      const fallback = j.categories.find((c) => !c.isCompletedSection);
+      data.homeCategoryId = fallback ? fallback.id : targetCatId;
+    }
+  }
+  const targetCat = j.categories.find((c) => c.id === targetCatId);
+
+  if (itemId) {
+    const it = originalCat.items.find((i) => i.id === itemId);
+    Object.assign(it, data);
+    if (targetCatId !== originalCatId) {
+      originalCat.items = originalCat.items.filter((i) => i.id !== itemId);
+      targetCat.items.push(it);
+    }
+  } else {
+    targetCat.items.push({ id: uid(), ...data });
+  }
+
+  await persistCurrent();
+  closeModal(modal);
+  render();
+}
+
+async function deleteItemModal() {
+  const modal = document.getElementById("modal-item");
+  const catId = modal.dataset.cat;
+  const itemId = modal.dataset.item;
+  if (!itemId) return;
+  const j = getCurrentJournal();
+  if (!canEditJournal(j)) return;
+  const cat = j.categories.find((c) => c.id === catId);
+  cat.items = cat.items.filter((i) => i.id !== itemId);
+  await persistCurrent();
+  closeModal(modal);
+  render();
+}
+
+// ---------------- Modal: Category ----------------
+
+function openCategoryModal(existingId) {
+  if (!canEditJournal(getCurrentJournal())) return;
+  const modal = document.getElementById("modal-category");
+  modal.dataset.cat = existingId || "";
+  let name = "";
+  if (existingId) {
+    const j = getCurrentJournal();
+    name = j.categories.find((c) => c.id === existingId).name;
+    modal.querySelector("#category-modal-title").textContent = "重新命名類別";
+  } else {
+    modal.querySelector("#category-modal-title").textContent = "新增類別";
+  }
+  modal.querySelector("#category-field-name").value = name;
+  showModal(modal);
+}
+
+async function saveCategoryModal() {
+  const modal = document.getElementById("modal-category");
+  const name = modal.querySelector("#category-field-name").value.trim();
+  if (!name) {
+    alert("請輸入類別名稱");
+    return;
+  }
+  const j = getCurrentJournal();
+  const existingId = modal.dataset.cat;
+  if (existingId) {
+    j.categories.find((c) => c.id === existingId).name = name;
+  } else {
+    j.categories.push(newCategory(name));
+  }
+  await persistCurrent();
+  closeModal(modal);
+  render();
+}
+
+// ---------------- Modal: User (Admin only) ----------------
+
+// existingAccess: [{ departmentId, canEdit }, ...] — 已勾選的餐廳；新帳號傳空陣列即可（預設全部不勾）。
+function renderDepartmentChecklist(container, existingAccess) {
+  container.innerHTML = state.departments.length
+    ? state.departments.map((d) => {
+        const existing = existingAccess.find((x) => x.departmentId === d.id);
+        const checked = !!existing;
+        const canEdit = existing ? existing.canEdit : true;
+        return `
+      <label class="checkbox-row">
+        <input type="checkbox" value="${d.id}" data-dept-checkbox ${checked ? "checked" : ""} />
+        <span>${escapeHtml(d.name)}</span>
+        <select class="field-input field-select dept-access-select" data-dept-access="${d.id}" ${checked ? "" : "disabled"}>
+          <option value="edit" ${canEdit ? "selected" : ""}>可編輯</option>
+          <option value="view" ${!canEdit ? "selected" : ""}>僅查看</option>
+        </select>
+      </label>`;
+      }).join("")
+    : `<p class="cat-empty">尚無餐廳，請先在「餐廳管理」新增</p>`;
+
+  container.querySelectorAll("[data-dept-checkbox]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const select = container.querySelector(`[data-dept-access="${cb.value}"]`);
+      select.disabled = !cb.checked;
+    });
+  });
+}
+
+function readDepartmentChecklist(container) {
+  return Array.from(container.querySelectorAll("[data-dept-checkbox]:checked")).map((cb) => ({
+    departmentId: Number(cb.value),
+    canEdit: container.querySelector(`[data-dept-access="${cb.value}"]`).value === "edit",
+  }));
+}
+
+function openUserModal() {
+  const modal = document.getElementById("modal-user");
+  modal.querySelector("#user-field-username").value = "";
+  modal.querySelector("#user-field-displayname").value = "";
+  modal.querySelector("#user-field-password").value = "";
+  modal.querySelector("#user-field-role").value = "User";
+  renderDepartmentChecklist(modal.querySelector("#user-field-departments-list"), []);
+  showModal(modal);
+}
+
+async function saveUserModal() {
+  const modal = document.getElementById("modal-user");
+  const username = modal.querySelector("#user-field-username").value.trim();
+  const password = modal.querySelector("#user-field-password").value;
+  const displayName = modal.querySelector("#user-field-displayname").value.trim();
+  const role = modal.querySelector("#user-field-role").value;
+  const departments = readDepartmentChecklist(modal.querySelector("#user-field-departments-list"));
+
+  if (!username || !password) {
+    alert("請輸入帳號與密碼");
+    return;
+  }
+
+  try {
+    await Store.createUser({ username, password, displayName, role, departments });
+    state.users = await Store.getUsers();
+    state.auditLogs = await Store.getAuditLogs();
+    closeModal(modal);
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleDeleteUser(id) {
+  if (!confirm("確定要刪除此帳號嗎？")) return;
+  try {
+    await Store.deleteUser(id);
+    state.users = await Store.getUsers();
+    state.auditLogs = await Store.getAuditLogs();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function openResetPasswordModal(userId) {
+  const modal = document.getElementById("modal-reset-password");
+  modal.dataset.mode = "user";
+  modal.dataset.userId = userId;
+  modal.querySelector("#reset-password-field").value = "";
+  showModal(modal);
+}
+
+function openApprovePasswordResetModal(requestId) {
+  const modal = document.getElementById("modal-reset-password");
+  modal.dataset.mode = "request";
+  modal.dataset.requestId = requestId;
+  modal.querySelector("#reset-password-field").value = "";
+  showModal(modal);
+}
+
+async function saveResetPasswordModal() {
+  const modal = document.getElementById("modal-reset-password");
+  const password = modal.querySelector("#reset-password-field").value;
+  if (!password) {
+    alert("請輸入新密碼");
+    return;
+  }
+  try {
+    if (modal.dataset.mode === "request") {
+      await Store.approvePasswordReset(modal.dataset.requestId, password);
+      state.passwordResetRequests = await Store.getPasswordResetRequests();
+    } else {
+      await Store.resetUserPassword(modal.dataset.userId, password);
+    }
+    state.auditLogs = await Store.getAuditLogs();
+    closeModal(modal);
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRejectPasswordReset(id) {
+  if (!confirm("確定要駁回此忘記密碼申請嗎？")) return;
+  try {
+    await Store.rejectPasswordReset(id);
+    state.passwordResetRequests = await Store.getPasswordResetRequests();
+    state.auditLogs = await Store.getAuditLogs();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleChangeRole(id, role) {
+  try {
+    await Store.changeUserRole(id, role);
+    state.users = await Store.getUsers();
+    state.auditLogs = await Store.getAuditLogs();
+  } catch (err) {
+    alert(err.message);
+  }
+  render();
+}
+
+async function handleApproveUser(id) {
+  try {
+    await Store.approveUser(id);
+    state.users = await Store.getUsers();
+    state.auditLogs = await Store.getAuditLogs();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// ---------------- Modal: User departments / 餐廳權限 (Admin only) ----------------
+
+function openUserDepartmentsModal(userId) {
+  const modal = document.getElementById("modal-user-departments");
+  const target = state.users.find((u) => String(u.id) === String(userId));
+  if (!target) return;
+  modal.dataset.userId = userId;
+  renderDepartmentChecklist(modal.querySelector("#user-departments-list"), target.departments);
+  showModal(modal);
+}
+
+async function saveUserDepartmentsModal() {
+  const modal = document.getElementById("modal-user-departments");
+  const userId = modal.dataset.userId;
+  const departments = readDepartmentChecklist(modal.querySelector("#user-departments-list"));
+  try {
+    await Store.setUserDepartments(userId, departments);
+    state.users = await Store.getUsers();
+    state.auditLogs = await Store.getAuditLogs();
+    closeModal(modal);
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// ---------------- Departments / 餐廳管理 (Admin only) ----------------
+
+async function handleAddDepartment() {
+  const name = prompt("請輸入餐廳名稱");
+  if (!name || !name.trim()) return;
+  try {
+    await Store.createDepartment(name.trim());
+    state.departments = await Store.getDepartments();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRenameDepartment(id, currentName) {
+  const name = prompt("餐廳名稱", currentName);
+  if (!name || !name.trim() || name.trim() === currentName) return;
+  try {
+    await Store.renameDepartment(id, name.trim());
+    state.departments = await Store.getDepartments();
+    state.users = await Store.getUsers();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleDeleteDepartment(id) {
+  if (!confirm("確定要刪除此餐廳嗎？已指派此餐廳的帳號也會一併移除該權限。")) return;
+  try {
+    await Store.deleteDepartment(id);
+    state.departments = await Store.getDepartments();
+    state.users = await Store.getUsers();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// ---------------- Actions ----------------
+
+async function handleNewJournal() {
+  if (!canCreateNewJournal()) return;
+  const j = buildNewJournal();
+  state.journals.unshift(j);
+  state.currentId = j.id;
+  await Store.saveJournal(j);
+  state.view = "editor";
+  render();
+}
+
+async function handleDuplicateJournal(id) {
+  const src = state.journals.find((j) => j.id === id);
+  if (!canEditJournal(src)) return;
+  const newStart = new Date(src.periodStart + "T00:00:00");
+  newStart.setDate(newStart.getDate() + 7);
+  const newEnd = new Date(src.periodEnd + "T00:00:00");
+  newEnd.setDate(newEnd.getDate() + 7);
+
+  const categories = src.categories.map((cat) => {
+    const newCatId = uid();
+    return {
+      id: newCatId,
+      name: cat.name,
+      isCompletedSection: cat.isCompletedSection,
+      items: cat.isCompletedSection
+        ? []
+        : cat.items.filter((i) => (Number(i.percent) || 0) < 100).map((i) => ({ ...i, id: uid(), homeCategoryId: newCatId })),
+    };
+  });
+
+  const j = buildNewJournal({
+    department: src.department,
+    periodStart: isoDate(newStart),
+    periodEnd: isoDate(newEnd),
+    categories,
+  });
+  state.journals.unshift(j);
+  state.currentId = j.id;
+  await Store.saveJournal(j);
+  state.view = "editor";
+  render();
+}
+
+async function handleDeleteJournal(id) {
+  const target = state.journals.find((j) => j.id === id);
+  if (!canEditJournal(target)) return;
+  if (!confirm("確定要刪除這份週誌嗎？此動作無法復原。")) return;
+  await Store.deleteJournal(id);
+  state.journals = state.journals.filter((j) => j.id !== id);
+  if (state.currentId === id) {
+    state.currentId = state.journals[0] ? state.journals[0].id : null;
+  }
+  render();
+}
+
+async function handleDeleteCategory(catId) {
+  const j = getCurrentJournal();
+  if (!canEditJournal(j)) return;
+  if (!confirm("確定要刪除此類別及其所有項目嗎？")) return;
+  j.categories = j.categories.filter((c) => c.id !== catId);
+  await persistCurrent();
+  render();
+}
+
+async function handleToggleItemPriority(catId, itemId) {
+  const j = getCurrentJournal();
+  if (!canEditJournal(j)) return;
+  const cat = j.categories.find((c) => c.id === catId);
+  const it = cat && cat.items.find((i) => i.id === itemId);
+  if (!it) return;
+  it.isPriority = !it.isPriority;
+  await persistCurrent();
+  render();
+}
+
+async function handleMetaChange(field, value) {
+  const j = getCurrentJournal();
+  if (!canEditJournal(j)) return;
+  j[field] = value;
+  await persistCurrent();
+  render();
+}
+
+async function handleSettingChange(field, value) {
+  state.settings[field] = value;
+  await Store.saveSettings(state.settings);
+}
+
+// 切換「目前餐廳」：重新從資料庫讀取週誌，並把畫面上的卡片切到對應這間餐廳的資料。
+async function handleSwitchDepartment(name) {
+  Auth.setCurrentDepartment(name);
+  state.journals = await Store.getAllJournals();
+  const match = state.journals.find((j) => j.department === name);
+  state.currentId = match ? match.id : null;
+  state.lightTimer = name ? await Store.getLightTimer(name) : { department: "", rows: [] };
+  state.maintenanceSchedule = name ? await Store.getMaintenanceSchedule(name) : { department: "", tasks: [] };
+  state.maintenanceReminderShown = false;
+  render();
+}
+
+// ---------------- Print / Export ----------------
+
+function buildPrintHtml(j) {
+  const rows = (cat, startIdx) => cat.items.map((it, i) => `
+    <tr>
+      <td class="p-idx">${startIdx + i + 1}</td>
+      <td class="p-item">${escapeHtml(it.item)}</td>
+      <td class="p-progress">${escapeHtml(it.progress).replace(/\n/g, "<br/>")}</td>
+      <td class="p-date">${it.expectedDate ? toROC(it.expectedDate, "full") : ""}</td>
+      <td class="p-assignee">${escapeHtml(it.assignee)}</td>
+      <td class="p-pct">${Number(it.percent) || 0}%</td>
+    </tr>`).join("");
+
+  const sections = j.categories.map((cat, ci) => `
+    <tr class="p-section"><td colspan="6">${escapeHtml(cat.name)}</td></tr>
+    ${cat.items.length ? rows(cat, 0) : `<tr><td colspan="6" class="p-empty">（無項目）</td></tr>`}
+  `).join("");
+
+  return `
+  <div class="print-sheet">
+    <h1 class="p-company">${escapeHtml(state.settings.companyName)}</h1>
+    <h2 class="p-title">工作週誌</h2>
+    <div class="p-info">部門：${escapeHtml(j.department)}</div>
+    <div class="p-info p-info-row">
+      <span>期間：${toROC(j.periodStart, "full")} ～ ${toROC(j.periodEnd, "full")}</span>
+      <span>製表日期：${toROC(todayIso(), "full")}</span>
+    </div>
+    <table class="p-table">
+      <thead>
+        <tr>
+          <th class="p-idx">序</th>
+          <th class="p-item">工作項目</th>
+          <th class="p-progress">目前進度說明</th>
+          <th class="p-date">預計完成日期</th>
+          <th class="p-assignee">負責人</th>
+          <th class="p-pct">完成度%</th>
+        </tr>
+      </thead>
+      <tbody>${sections}</tbody>
+    </table>
+    <div class="p-signature">
+      <span class="p-signature-label">主管簽名：</span>
+      <span class="p-signature-line"></span>
+    </div>
+  </div>`;
+}
+
+// 實測發現：不管是 iOS Safari 還是桌面版 Edge/WebView2，都不會照 CSS 的 @page/named-page
+// 設定真的把方向切成橫向 —— 列印對話框裡「配置」永遠還是顯示「直向」，即使我們的 CSS
+// 要求橫向。與其讓 JS 假設一個瀏覽器實際上不會採用的方向（算出來的可用寬度就會跟真正印出來
+// 的頁面對不上，內容才會沒對齊、留白位置不對），乾脆固定都用直向 A4 的尺寸去算，跟兩邊瀏覽器
+// 實際的預設行為一致。使用者仍可以自己在列印對話框裡手動切成橫向，寬度算法只是偏保守
+// （會留一點空白，但不會裁到資料）。
+function fitPrintSheetToOnePage() {
+  const area = document.getElementById("print-area");
+  const sheet = area.querySelector(".print-sheet");
+  if (!sheet) return;
+
+  sheet.style.transform = "none";
+  area.style.height = "";
+  area.style.overflow = "";
+  area.style.width = "";
+
+  const mmToPx = 96 / 25.4;
+  const marginMm = 5; // 對應 @page 的 margin: 5mm — 兩邊要一致，否則算出來的可用寬度會跟印表機/PDF 引擎實際可印的範圍對不上
+  const pageWidthMm = 210;
+  const pageHeightMm = 297;
+  const usableWidthPx = (pageWidthMm - marginMm * 2) * mmToPx;
+  const usableHeightPx = (pageHeightMm - marginMm * 2) * mmToPx;
+
+  // #print-area is display:none outside of @media print, and measuring it at whatever
+  // width the current device's viewport happens to be (especially a narrow phone in
+  // portrait) makes a wide table wrap its cell text onto extra lines — inflating the
+  // measured height far beyond what it actually needs at true A4 print width, and
+  // throwing off the scale below. Pin the width to the real A4 usable width during
+  // measurement so the result is the same on every device, then restore afterwards —
+  // this never becomes visible on screen.
+  const restoreDisplay = area.style.display;
+  const restoreVisibility = area.style.visibility;
+  area.style.display = "block";
+  area.style.visibility = "hidden";
+  area.style.width = `${usableWidthPx}px`;
+
+  const contentHeight = sheet.scrollHeight;
+
+  area.style.display = restoreDisplay;
+  area.style.visibility = restoreVisibility;
+  area.style.width = "";
+
+  if (!contentHeight) return;
+
+  // 量測時寬度已經固定成 A4 可用寬度，所以只需要用高度來決定縮放比例；只會縮小，
+  // 不會放大到超過 100% —— 放大雖然能填滿高度方向的空白，但寬度也會跟著等比例
+  // 放大而超出紙張範圍，兩害相權，寧可保留些微空白也不要讓內容被裁掉或多印一頁。
+  const scale = Math.min(usableHeightPx / contentHeight, 1);
+  sheet.style.width = `${usableWidthPx}px`;
+  sheet.style.transformOrigin = "top left";
+  sheet.style.transform = `scale(${scale})`;
+  // 縮放只影響畫面呈現，不會改變版面配置佔用的高度；改設定容器實際高度，
+  // 瀏覽器計算分頁時才會依縮小後的高度判斷，不會誤判成需要第二頁。
+  area.style.height = `${contentHeight * scale}px`;
+  area.style.overflow = "hidden";
+}
+
+window.addEventListener("beforeprint", fitPrintSheetToOnePage);
+window.addEventListener("afterprint", () => {
+  const area = document.getElementById("print-area");
+  const sheet = area.querySelector(".print-sheet");
+  if (sheet) sheet.style.transform = "";
+  area.style.height = "";
+  area.style.overflow = "";
+});
+
+function handleExport() {
+  const j = getCurrentJournal();
+  if (!j) return;
+  const container = document.getElementById("print-area");
+  container.innerHTML = buildPrintHtml(j);
+  fitPrintSheetToOnePage();
+  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
+  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
+  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
+  setTimeout(() => window.print(), 50);
+}
+
+function buildTimerPrintHtml() {
+  const dept = Auth.getCurrentDepartment();
+  const rows = state.lightTimer.rows || [];
+
+  const bodyRows = rows.map((r) => `
+    <tr>
+      <td class="pt-location">${escapeHtml(r.location)}</td>
+      <td>${escapeHtml(r.summerStart)}</td>
+      <td class="pt-sep">～</td>
+      <td>${escapeHtml(r.summerEnd)}</td>
+      <td>${escapeHtml(r.springAutumnStart)}</td>
+      <td class="pt-sep">～</td>
+      <td>${escapeHtml(r.springAutumnEnd)}</td>
+      <td>${escapeHtml(r.winterStart)}</td>
+      <td class="pt-sep">～</td>
+      <td>${escapeHtml(r.winterEnd)}</td>
+      <td class="pt-note">${escapeHtml(r.note)}</td>
+    </tr>`).join("");
+
+  return `
+  <div class="print-sheet">
+    <h1 class="p-company">${escapeHtml(state.settings.companyName)}</h1>
+    <h2 class="p-title">${escapeHtml(dept)}燈光定時器</h2>
+    <table class="p-table pt-table">
+      <thead>
+        <tr>
+          <th rowspan="2" class="pt-location">地點</th>
+          <th colspan="3">夏季</th>
+          <th colspan="3">春秋季節</th>
+          <th colspan="3">冬季節</th>
+          <th rowspan="2">備註</th>
+        </tr>
+        <tr>
+          <th>開始時間</th><th>至</th><th>結束時間</th>
+          <th>開始時間</th><th>至</th><th>結束時間</th>
+          <th>開始時間</th><th>至</th><th>結束時間</th>
+        </tr>
+      </thead>
+      <tbody>${rows.length ? bodyRows : `<tr><td colspan="11" class="p-empty">（無資料）</td></tr>`}</tbody>
+    </table>
+    <div class="p-info" style="margin-top:12px;">製表日期：${toROC(todayIso(), "full")}</div>
+  </div>`;
+}
+
+function handleExportTimers() {
+  const container = document.getElementById("print-area");
+  container.innerHTML = buildTimerPrintHtml();
+  fitPrintSheetToOnePage();
+  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
+  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
+  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
+  setTimeout(() => window.print(), 50);
+}
+
+function buildMaintenancePrintHtml() {
+  const dept = Auth.getCurrentDepartment();
+  const tasks = state.maintenanceSchedule.tasks || [];
+
+  const bodyRows = tasks.map((t, idx) => {
+    const activeMonths = new Set(t.activeMonths || []);
+    const cells = Array.from({ length: 12 }, (_, i) => `<td>${activeMonths.has(i + 1) ? "●" : ""}</td>`).join("");
+    return `
+    <tr>
+      <td>${idx + 1}</td>
+      <td class="mnt-print-name">${escapeHtml(t.name)}</td>
+      <td>${escapeHtml(t.frequencyLabel)}<br/>${escapeHtml(t.timesPerYear)}</td>
+      <td class="mnt-print-months">${escapeHtml(t.monthsText)}</td>
+      ${cells}
+    </tr>`;
+  }).join("");
+
+  const monthHeaders = Array.from({ length: 12 }, (_, i) => `<th>${i + 1}</th>`).join("");
+
+  return `
+  <div class="print-sheet">
+    <h1 class="p-company">${escapeHtml(state.settings.companyName)}</h1>
+    <h2 class="p-title">${escapeHtml(dept)}保養排程</h2>
+    <table class="p-table mnt-print-table">
+      <thead>
+        <tr>
+          <th>項次</th><th>項目</th><th>頻率</th><th>月份</th>${monthHeaders}
+        </tr>
+      </thead>
+      <tbody>${tasks.length ? bodyRows : `<tr><td colspan="16" class="p-empty">（無資料）</td></tr>`}</tbody>
+    </table>
+    <div class="p-info" style="margin-top:12px;">製表日期：${toROC(todayIso(), "full")}</div>
+  </div>`;
+}
+
+function handleExportMaintenance() {
+  const container = document.getElementById("print-area");
+  container.innerHTML = buildMaintenancePrintHtml();
+  fitPrintSheetToOnePage();
+  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
+  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
+  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
+  setTimeout(() => window.print(), 50);
+}
+
+// ---------------- Event wiring ----------------
+
+function wireEvents() {
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.view = btn.dataset.view;
+      render();
+      if (state.view === "maintenance") maybeShowMaintenanceReminder();
+    });
+  });
+
+  document.getElementById("export-btn").addEventListener("click", () => {
+    if (state.view === "timers") handleExportTimers();
+    else if (state.view === "maintenance") handleExportMaintenance();
+    else handleExport();
+  });
+  document.getElementById("fab-add-item").addEventListener("click", () => openItemModal(null, null));
+  document.getElementById("theme-toggle-app").addEventListener("click", () => Theme.toggle());
+
+  document.getElementById("view-root").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-action]");
+    if (!el) return;
+    const action = el.dataset.action;
+    if (action === "new-journal") handleNewJournal();
+    else if (action === "add-category") openCategoryModal(null);
+    else if (action === "rename-category") openCategoryModal(el.dataset.cat);
+    else if (action === "delete-category") handleDeleteCategory(el.dataset.cat);
+    else if (action === "edit-item") openItemModal(el.dataset.cat, el.dataset.item);
+    else if (action === "toggle-item-priority") handleToggleItemPriority(el.dataset.cat, el.dataset.item);
+    else if (action === "open-journal") {
+      state.currentId = el.dataset.id;
+      state.view = "editor";
+      render();
+    } else if (action === "duplicate-journal") handleDuplicateJournal(el.dataset.id);
+    else if (action === "delete-journal") handleDeleteJournal(el.dataset.id);
+    else if (action === "logout") handleLogout();
+    else if (action === "add-user") openUserModal();
+    else if (action === "delete-user") handleDeleteUser(el.dataset.id);
+    else if (action === "reset-password") openResetPasswordModal(el.dataset.id);
+    else if (action === "approve-user") handleApproveUser(el.dataset.id);
+    else if (action === "approve-reset-request") openApprovePasswordResetModal(el.dataset.id);
+    else if (action === "reject-reset-request") handleRejectPasswordReset(el.dataset.id);
+    else if (action === "manage-user-departments") openUserDepartmentsModal(el.dataset.id);
+    else if (action === "add-department") handleAddDepartment();
+    else if (action === "rename-department") handleRenameDepartment(el.dataset.id, el.dataset.name);
+    else if (action === "delete-department") handleDeleteDepartment(el.dataset.id);
+    else if (action === "add-timer") openTimerModal(null);
+    else if (action === "edit-timer") openTimerModal(el.dataset.id);
+    else if (action === "delete-timer") handleDeleteTimer(el.dataset.id);
+    else if (action === "add-maintenance") openMaintenanceModal(null);
+    else if (action === "edit-maintenance") openMaintenanceModal(el.dataset.id);
+    else if (action === "delete-maintenance") handleDeleteMaintenance(el.dataset.id);
+  });
+
+  document.getElementById("view-root").addEventListener("change", (e) => {
+    const field = e.target.dataset.field;
+    const setting = e.target.dataset.setting;
+    if (field) handleMetaChange(field, e.target.value);
+    if (setting) handleSettingChange(setting, e.target.value);
+    if (e.target.dataset.action === "change-role") handleChangeRole(e.target.dataset.id, e.target.value);
+    if (e.target.dataset.action === "switch-department") handleSwitchDepartment(e.target.value);
+    if (e.target.dataset.action === "filter-audit-department") {
+      state.auditLogDepartmentFilter = e.target.value;
+      render();
+    }
+  });
+
+  // Item modal
+  const itemModal = document.getElementById("modal-item");
+  itemModal.querySelector("#item-save-btn").addEventListener("click", saveItemModal);
+  itemModal.querySelector("#item-delete-btn").addEventListener("click", deleteItemModal);
+  itemModal.querySelector("#item-cancel-btn").addEventListener("click", () => closeModal(itemModal));
+  itemModal.querySelector("#item-cancel-footer-btn").addEventListener("click", () => closeModal(itemModal));
+  itemModal.querySelector("#item-field-percent").addEventListener("change", () => applyPercentCategoryLock(itemModal));
+  itemModal.querySelector("#item-field-category").addEventListener("change", (e) => {
+    if (!e.target.disabled) itemModal.dataset.home = e.target.value;
+  });
+
+  // Category modal
+  const catModal = document.getElementById("modal-category");
+  catModal.querySelector("#category-save-btn").addEventListener("click", saveCategoryModal);
+  catModal.querySelector("#category-cancel-btn").addEventListener("click", () => closeModal(catModal));
+  catModal.querySelector("#category-cancel-footer-btn").addEventListener("click", () => closeModal(catModal));
+
+  // Light timer modal
+  const timerModal = document.getElementById("modal-timer");
+  timerModal.querySelector("#timer-save-btn").addEventListener("click", saveTimerModal);
+  timerModal.querySelector("#timer-cancel-btn").addEventListener("click", () => closeModal(timerModal));
+  timerModal.querySelector("#timer-cancel-footer-btn").addEventListener("click", () => closeModal(timerModal));
+
+  // Maintenance schedule modal
+  const maintenanceModal = document.getElementById("modal-maintenance");
+  maintenanceModal.querySelector("#maintenance-save-btn").addEventListener("click", saveMaintenanceModal);
+  maintenanceModal.querySelector("#maintenance-cancel-btn").addEventListener("click", () => closeModal(maintenanceModal));
+  maintenanceModal.querySelector("#maintenance-cancel-footer-btn").addEventListener("click", () => closeModal(maintenanceModal));
+
+  // Maintenance reminder popup
+  const maintenanceReminderModal = document.getElementById("modal-maintenance-reminder");
+  maintenanceReminderModal.querySelector("#maintenance-reminder-close-btn").addEventListener("click", () => closeModal(maintenanceReminderModal));
+  maintenanceReminderModal.querySelector("#maintenance-reminder-ok-btn").addEventListener("click", () => closeModal(maintenanceReminderModal));
+
+  // User modal
+  const userModal = document.getElementById("modal-user");
+  userModal.querySelector("#user-save-btn").addEventListener("click", saveUserModal);
+  userModal.querySelector("#user-cancel-btn").addEventListener("click", () => closeModal(userModal));
+  userModal.querySelector("#user-cancel-footer-btn").addEventListener("click", () => closeModal(userModal));
+
+  // Reset password modal
+  const resetPwModal = document.getElementById("modal-reset-password");
+  resetPwModal.querySelector("#reset-password-save-btn").addEventListener("click", saveResetPasswordModal);
+  resetPwModal.querySelector("#reset-password-cancel-btn").addEventListener("click", () => closeModal(resetPwModal));
+  resetPwModal.querySelector("#reset-password-cancel-footer-btn").addEventListener("click", () => closeModal(resetPwModal));
+
+  // User departments modal
+  const userDeptModal = document.getElementById("modal-user-departments");
+  userDeptModal.querySelector("#user-departments-save-btn").addEventListener("click", saveUserDepartmentsModal);
+  userDeptModal.querySelector("#user-departments-cancel-btn").addEventListener("click", () => closeModal(userDeptModal));
+  userDeptModal.querySelector("#user-departments-cancel-footer-btn").addEventListener("click", () => closeModal(userDeptModal));
+
+  document.querySelectorAll(".modal-backdrop").forEach((bd) => {
+    bd.addEventListener("click", (e) => {
+      if (e.target === bd) closeModal(bd);
+    });
+  });
+}
+
+// ---------------- Auth / Login ----------------
+
+function showLogin(message, notice) {
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("login-screen").classList.remove("hidden");
+  document.getElementById("signup-form").classList.add("hidden");
+  document.getElementById("forgot-form").classList.add("hidden");
+  document.getElementById("login-form").classList.remove("hidden");
+  document.getElementById("login-password").value = "";
+  loadLoginDepartments();
+  const err = document.getElementById("login-error");
+  if (message) {
+    err.textContent = message;
+    err.classList.remove("hidden");
+  } else {
+    err.classList.add("hidden");
+  }
+  const noticeEl = document.getElementById("login-notice");
+  if (notice) {
+    noticeEl.textContent = notice;
+    noticeEl.classList.remove("hidden");
+  } else {
+    noticeEl.classList.add("hidden");
+  }
+}
+
+async function startApp() {
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+
+  state.settings = await Store.getSettings();
+  state.journals = await Store.getAllJournals();
+  if (Auth.isAdmin()) {
+    state.users = await Store.getUsers();
+    state.passwordResetRequests = await Store.getPasswordResetRequests();
+    state.auditLogs = await Store.getAuditLogs();
+    state.departments = await Store.getDepartments();
+  } else {
+    state.users = [];
+    state.passwordResetRequests = [];
+    state.auditLogs = [];
+    state.departments = [];
+  }
+
+  const targetDept = resolveDefaultDepartment();
+  const hasJournalForTarget = state.journals.some((j) => j.department === targetDept);
+  if (!hasJournalForTarget && canCreateNewJournal()) {
+    const j = buildNewJournal();
+    state.journals.push(j);
+    await Store.saveJournal(j);
+  }
+  const currentDeptJournal = state.journals.find((j) => j.department === Auth.getCurrentDepartment());
+  state.currentId = currentDeptJournal ? currentDeptJournal.id : (state.journals.length ? state.journals[0].id : null);
+
+  state.lightTimer = Auth.getCurrentDepartment() ? await Store.getLightTimer(Auth.getCurrentDepartment()) : { department: "", rows: [] };
+  state.maintenanceSchedule = Auth.getCurrentDepartment() ? await Store.getMaintenanceSchedule(Auth.getCurrentDepartment()) : { department: "", tasks: [] };
+
+  render();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  }
+}
+
+function handleLogout() {
+  Auth.logout();
+  state.settings = null;
+  state.journals = [];
+  state.currentId = null;
+  state.users = [];
+  state.passwordResetRequests = [];
+  state.auditLogs = [];
+  state.lightTimer = { department: "", rows: [] };
+  state.maintenanceSchedule = { department: "", tasks: [] };
+  state.maintenanceReminderShown = false;
+  showLogin();
+}
+
+async function loadLoginDepartments() {
+  const select = document.getElementById("login-department");
+  if (!select) return;
+  try {
+    const departments = await Store.getDepartments();
+    const options = departments.map((d) => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join("");
+    select.innerHTML = `<option value="">（系統管理員可略過）</option>${options}`;
+  } catch (e) {
+    select.innerHTML = `<option value="">（系統管理員可略過）</option>`;
+  }
+}
+
+function wirePasswordToggle(inputId, toggleId) {
+  const input = document.getElementById(inputId);
+  const toggle = document.getElementById(toggleId);
+  if (!input || !toggle) return;
+  toggle.addEventListener("click", () => {
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    toggle.querySelector(".pw-eye-open").classList.toggle("hidden", !showing);
+    toggle.querySelector(".pw-eye-closed").classList.toggle("hidden", showing);
+    toggle.title = showing ? "顯示密碼" : "隱藏密碼";
+    toggle.setAttribute("aria-label", showing ? "顯示密碼" : "隱藏密碼");
+  });
+}
+
+function wireLoginEvents() {
+  const loginForm = document.getElementById("login-form");
+  const signupForm = document.getElementById("signup-form");
+  const forgotForm = document.getElementById("forgot-form");
+
+  document.getElementById("theme-toggle-login").addEventListener("click", () => Theme.toggle());
+
+  wirePasswordToggle("login-password", "login-password-toggle");
+  wirePasswordToggle("signup-password", "signup-password-toggle");
+
+  loginForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("login-username").value.trim();
+    const password = document.getElementById("login-password").value;
+    const selectedDepartment = document.getElementById("login-department").value;
+    const remember = document.getElementById("login-remember").checked;
+    if (!username || !password) return;
+    const btn = document.getElementById("login-submit-btn");
+    btn.disabled = true;
+    try {
+      const data = await Auth.login(username, password, selectedDepartment, remember);
+      await startApp();
+      if (data.departmentMismatch && data.currentDepartment) {
+        alert(`已自動切換至帳號所屬餐廳：${data.currentDepartment}`);
+      }
+    } catch (err) {
+      showLogin(err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById("show-login-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    signupForm.classList.add("hidden");
+    loginForm.classList.remove("hidden");
+  });
+
+  document.getElementById("show-forgot-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    loginForm.classList.add("hidden");
+    forgotForm.classList.remove("hidden");
+  });
+
+  document.getElementById("show-login-from-forgot-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    forgotForm.classList.add("hidden");
+    loginForm.classList.remove("hidden");
+  });
+
+  signupForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("signup-username").value.trim();
+    const password = document.getElementById("signup-password").value;
+    const displayName = document.getElementById("signup-displayname").value.trim();
+    if (!username || !password) return;
+    const btn = document.getElementById("signup-submit-btn");
+    const err = document.getElementById("signup-error");
+    btn.disabled = true;
+    err.classList.add("hidden");
+    try {
+      await Auth.signup(username, password, displayName);
+      signupForm.reset();
+      showLogin(null, "註冊成功，請等待管理員審核通過後即可登入");
+    } catch (signupErr) {
+      err.textContent = signupErr.message;
+      err.classList.remove("hidden");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  forgotForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("forgot-username").value.trim();
+    if (!username) return;
+    const btn = document.getElementById("forgot-submit-btn");
+    const err = document.getElementById("forgot-error");
+    btn.disabled = true;
+    err.classList.add("hidden");
+    try {
+      await Auth.forgotPassword(username);
+      forgotForm.reset();
+      showLogin(null, "已送出重設密碼申請，請等待管理員處理");
+    } catch (forgotErr) {
+      err.textContent = forgotErr.message;
+      err.classList.remove("hidden");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  window.addEventListener("wj:unauthorized", () => showLogin("登入已過期，請重新登入"));
+}
+
+// ---------------- Init ----------------
+
+async function init() {
+  wireLoginEvents();
+  wireEvents();
+
+  if (Auth.isLoggedIn()) {
+    try {
+      await startApp();
+    } catch (err) {
+      showLogin(err.message);
+    }
+  } else {
+    showLogin();
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);

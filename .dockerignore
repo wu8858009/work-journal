@@ -1,0 +1,7 @@
+backend/**/bin/
+backend/**/obj/
+portable/
+*.zip
+.git/
+.vs/
+.vscode/

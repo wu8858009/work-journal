@@ -1,0 +1,19 @@
+# Build artifacts
+backend/**/bin/
+backend/**/obj/
+portable/
+
+# Local secrets — never commit real credentials. Render deployment uses environment
+# variables instead (see appsettings.json for the placeholder shape these override).
+backend/WorkJournalApi/appsettings.Development.json
+backend/WorkJournalApi/appsettings.Production.json
+帳密/
+
+# Pre-built distributable archives (large binaries, not source)
+*.zip
+
+# Editor/OS noise
+.vs/
+.vscode/
+*.user
+Thumbs.db

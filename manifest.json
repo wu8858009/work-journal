@@ -1,0 +1,14 @@
+{
+  "name": "工作週誌",
+  "short_name": "工作週誌",
+  "description": "企業工作週誌管理 App",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f4f5",
+  "theme_color": "#1c1c1f",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
