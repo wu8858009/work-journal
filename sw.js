@@ -1,4 +1,4 @@
-const CACHE_NAME = "wj-cache-v5";
+const CACHE_NAME = "wj-cache-v6";
 const ASSETS = [
   "./",
   "./index.html",

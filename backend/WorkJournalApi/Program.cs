@@ -10,6 +10,10 @@ using WorkJournalApi.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Journals now embed item photos as base64 data URLs, which pushes some request bodies
+// past Kestrel's ~28.6MB default well before hitting MongoDB's 16MB per-document cap.
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 64_000_000);
+
 builder.Services.AddControllers();
 
 builder.Services.AddSingleton<PasswordHasher>();

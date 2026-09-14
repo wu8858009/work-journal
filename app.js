@@ -159,7 +159,53 @@ function newCategory(name, isCompletedSection = false) {
 }
 
 function newItem() {
-  return { id: uid(), item: "", assignee: "", progress: "", expectedDate: "", percent: 0, homeCategoryId: "", isPriority: false };
+  return { id: uid(), item: "", assignee: "", progress: "", expectedDate: "", percent: 0, homeCategoryId: "", isPriority: false, photos: [] };
+}
+
+// 讀取使用者選的照片檔案，縮小到最長邊 maxDim 並轉成 JPEG data URL，避免整份週誌（存成
+// 單一 Mongo 文件）因為塞進太多原圖而爆掉。優先用 createImageBitmap 讀取，讓瀏覽器依照
+// EXIF 方向自動轉正手機拍的照片；不支援的環境退回用 <img> 讀取。
+async function fileToResizedDataUrl(file, maxDim = 1280, quality = 0.78) {
+  let source;
+  let width;
+  let height;
+  if (window.createImageBitmap) {
+    try {
+      source = await createImageBitmap(file, { imageOrientation: "from-image" });
+      width = source.width;
+      height = source.height;
+    } catch (e) {
+      source = null;
+    }
+  }
+  if (!source) {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+    width = source.naturalWidth;
+    height = source.naturalHeight;
+  }
+
+  if (width > maxDim || height > maxDim) {
+    const scale = maxDim / Math.max(width, height);
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(source, 0, 0, width, height);
+  if (source.close) source.close();
+  return canvas.toDataURL("image/jpeg", quality);
 }
 
 function defaultCategories() {
@@ -345,6 +391,11 @@ function itemRowHtml(cat, it, idx) {
       </div>
     </div>
     <div class="item-right">
+      ${it.photos && it.photos.length ? `
+      <div class="item-photo-strip" title="共 ${it.photos.length} 張照片">
+        <img src="${it.photos[0].dataUrl}" class="item-photo-thumb" alt="" />
+        ${it.photos.length > 1 ? `<span class="item-photo-count">+${it.photos.length - 1}</span>` : ""}
+      </div>` : ""}
       <button class="icon-btn priority-toggle-btn ${it.isPriority ? "priority-toggle-active" : ""}" data-action="toggle-item-priority" data-cat="${cat.id}" data-item="${it.id}" title="${it.isPriority ? "取消優先處理" : "標記為優先處理"}">${ICONS.flag}</button>
       <span class="pct-chip ${percentClass(pct)}">${pct}%</span>
       ${ICONS.chevron}
@@ -854,6 +905,19 @@ function renderSettings() {
 
 // ---------------- Modal: Item ----------------
 
+// 項目照片是編輯中的暫存狀態：開啟項目視窗時從該項目複製一份到這裡，使用者拍照/新增/
+// 編輯/刪除都只改這份暫存陣列，按「儲存」才會寫回項目物件並隨整份週誌一起送出。
+let itemModalPhotos = [];
+
+function renderItemModalPhotos(editable) {
+  const grid = document.getElementById("item-field-photos");
+  grid.innerHTML = itemModalPhotos.map((p) => `
+    <div class="photo-thumb" data-photo="${p.id}">
+      <img src="${p.dataUrl}" alt="照片" ${editable ? `data-action="edit-photo" data-photo="${p.id}"` : ""} />
+      ${editable ? `<button type="button" class="photo-thumb-delete" data-action="delete-photo" data-photo="${p.id}" title="刪除照片">${ICONS.close}</button>` : ""}
+    </div>`).join("") || `<p class="cat-empty photo-grid-empty">尚無照片</p>`;
+}
+
 function openItemModal(catId, itemId) {
   const j = getCurrentJournal();
   if (!j.categories.length) {
@@ -883,12 +947,16 @@ function openItemModal(catId, itemId) {
   modal.querySelector("#item-field-percent").value = String(Math.round((Number(it.percent) || 0) / 10) * 10);
   modal.querySelector("#item-field-priority").checked = !!it.isPriority;
 
+  itemModalPhotos = (it.photos || []).map((p) => ({ ...p }));
+
   const editable = canEditJournal(j);
   modal.querySelector("#item-modal-title").textContent = (isNew ? "新增項目" : "編輯項目") + (editable ? "" : "（唯讀）");
   ["item-field-category", "item-field-name", "item-field-assignee", "item-field-progress", "item-field-date", "item-field-percent", "item-field-priority"]
     .forEach((fieldId) => { modal.querySelector(`#${fieldId}`).disabled = !editable; });
   modal.querySelector("#item-delete-btn").classList.toggle("hidden", isNew || !editable);
   modal.querySelector("#item-save-btn").classList.toggle("hidden", !editable);
+  modal.querySelector(".photo-add-row").classList.toggle("hidden", !editable);
+  renderItemModalPhotos(editable);
   applyPercentCategoryLock(modal);
   if (!editable) modal.querySelector("#item-field-category").disabled = true;
   showModal(modal);
@@ -943,6 +1011,7 @@ async function saveItemModal() {
     expectedDate: modal.querySelector("#item-field-date").value,
     percent: Math.max(0, Math.min(100, Number(modal.querySelector("#item-field-percent").value) || 0)),
     isPriority: modal.querySelector("#item-field-priority").checked,
+    photos: itemModalPhotos,
   };
 
   if (!data.item) {
@@ -990,6 +1059,145 @@ async function deleteItemModal() {
   await persistCurrent();
   closeModal(modal);
   render();
+}
+
+// ---------------- Photo editor (draw / add text on a photo) ----------------
+//
+// 已存的照片其實是「拍照時的畫面 + 上次畫的線條文字」已經合併成一張圖，重新開啟編輯
+// 只是把那張合成好的圖當成新的底圖，在上面繼續加線條/文字；復原(undo)只能復原這次在
+// 編輯器裡新增的筆畫，沒辦法回到更早以前已經存檔、疊進圖片裡的標記。這樣設計是因為
+// 週誌本身存成單一 Mongo 文件，不需要另外為每張照片保存一份可回溯的向量圖層歷史。
+let photoEditorState = null;
+
+function openPhotoEditor(dataUrl, onSave) {
+  const modal = document.getElementById("modal-photo-editor");
+  const canvas = modal.querySelector("#photo-editor-canvas");
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    photoEditorState = {
+      img,
+      canvas,
+      ctx: canvas.getContext("2d"),
+      ops: [],
+      tool: "pen",
+      color: modal.querySelector("#photo-color-picker").value,
+      strokeWidth: Number(modal.querySelector("#photo-stroke-width").value),
+      drawing: false,
+      currentStroke: null,
+      onSave,
+    };
+    modal.querySelectorAll(".photo-tool-btn").forEach((b) => b.classList.toggle("active", b.dataset.tool === "pen"));
+    redrawPhotoEditor();
+    showModal(modal);
+  };
+  img.src = dataUrl;
+}
+
+function redrawPhotoEditor() {
+  const st = photoEditorState;
+  if (!st) return;
+  st.ctx.clearRect(0, 0, st.canvas.width, st.canvas.height);
+  st.ctx.drawImage(st.img, 0, 0, st.canvas.width, st.canvas.height);
+  st.ops.forEach((op) => drawPhotoOp(st.ctx, op));
+}
+
+function drawPhotoOp(ctx, op) {
+  if (op.type === "stroke") {
+    if (op.points.length < 2) return;
+    ctx.strokeStyle = op.color;
+    ctx.lineWidth = op.width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(op.points[0].x, op.points[0].y);
+    for (let i = 1; i < op.points.length; i++) ctx.lineTo(op.points[i].x, op.points[i].y);
+    ctx.stroke();
+  } else if (op.type === "text") {
+    ctx.fillStyle = op.color;
+    ctx.font = `bold ${op.size}px "PingFang TC", "Microsoft JhengHei", sans-serif`;
+    ctx.textBaseline = "top";
+    ctx.fillText(op.text, op.x, op.y);
+  }
+}
+
+function photoCanvasPoint(e) {
+  const st = photoEditorState;
+  const rect = st.canvas.getBoundingClientRect();
+  return {
+    x: ((e.clientX - rect.left) / rect.width) * st.canvas.width,
+    y: ((e.clientY - rect.top) / rect.height) * st.canvas.height,
+  };
+}
+
+function openPhotoTextInput(canvasPt, clientX, clientY) {
+  const wrap = document.getElementById("photo-editor-canvas-wrap");
+  wrap.querySelector(".photo-text-input")?.remove();
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "photo-text-input";
+  const wrapRect = wrap.getBoundingClientRect();
+  input.style.left = `${clientX - wrapRect.left}px`;
+  input.style.top = `${clientY - wrapRect.top}px`;
+  input.style.color = photoEditorState.color;
+  wrap.appendChild(input);
+  input.focus();
+
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const text = input.value.trim();
+    input.remove();
+    if (text) {
+      const st = photoEditorState;
+      st.ops.push({ type: "text", text, color: st.color, size: Math.max(20, st.strokeWidth * 5), x: canvasPt.x, y: canvasPt.y });
+      redrawPhotoEditor();
+    }
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    else if (e.key === "Escape") { done = true; input.remove(); }
+  });
+  input.addEventListener("blur", commit);
+}
+
+function endPhotoStroke() {
+  const st = photoEditorState;
+  if (!st || !st.drawing) return;
+  st.drawing = false;
+  if (st.currentStroke && st.currentStroke.points.length > 1) st.ops.push(st.currentStroke);
+  st.currentStroke = null;
+}
+
+function undoPhotoEditor() {
+  const st = photoEditorState;
+  if (!st || !st.ops.length) return;
+  st.ops.pop();
+  redrawPhotoEditor();
+}
+
+function clearPhotoEditor() {
+  const st = photoEditorState;
+  if (!st || !st.ops.length) return;
+  st.ops = [];
+  redrawPhotoEditor();
+}
+
+function savePhotoEditor() {
+  const st = photoEditorState;
+  if (!st) return;
+  const dataUrl = st.canvas.toDataURL("image/jpeg", 0.85);
+  const onSave = st.onSave;
+  closeModal(document.getElementById("modal-photo-editor"));
+  photoEditorState = null;
+  onSave(dataUrl);
+}
+
+function cancelPhotoEditor() {
+  closeModal(document.getElementById("modal-photo-editor"));
+  photoEditorState = null;
 }
 
 // ---------------- Modal: Category ----------------
@@ -1651,6 +1859,101 @@ function wireEvents() {
   itemModal.querySelector("#item-field-category").addEventListener("change", (e) => {
     if (!e.target.disabled) itemModal.dataset.home = e.target.value;
   });
+
+  // Item modal — photos
+  const cameraInput = document.getElementById("item-photo-camera-input");
+  const galleryInput = document.getElementById("item-photo-gallery-input");
+  document.getElementById("item-photo-camera-btn").addEventListener("click", () => cameraInput.click());
+  document.getElementById("item-photo-gallery-btn").addEventListener("click", () => galleryInput.click());
+
+  cameraInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const dataUrl = await fileToResizedDataUrl(file);
+    openPhotoEditor(dataUrl, (finalDataUrl) => {
+      itemModalPhotos.push({ id: uid(), dataUrl: finalDataUrl, createdAt: new Date().toISOString() });
+      renderItemModalPhotos(true);
+    });
+  });
+
+  galleryInput.addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    for (const file of files) {
+      const dataUrl = await fileToResizedDataUrl(file);
+      itemModalPhotos.push({ id: uid(), dataUrl, createdAt: new Date().toISOString() });
+    }
+    renderItemModalPhotos(true);
+  });
+
+  document.getElementById("item-field-photos").addEventListener("click", (e) => {
+    const deleteBtn = e.target.closest('[data-action="delete-photo"]');
+    if (deleteBtn) {
+      itemModalPhotos = itemModalPhotos.filter((p) => p.id !== deleteBtn.dataset.photo);
+      renderItemModalPhotos(true);
+      return;
+    }
+    const editTarget = e.target.closest('[data-action="edit-photo"]');
+    if (editTarget) {
+      const p = itemModalPhotos.find((x) => x.id === editTarget.dataset.photo);
+      if (p) openPhotoEditor(p.dataUrl, (newDataUrl) => { p.dataUrl = newDataUrl; renderItemModalPhotos(true); });
+    }
+  });
+
+  // Photo editor modal
+  const photoEditorModal = document.getElementById("modal-photo-editor");
+  const photoCanvas = document.getElementById("photo-editor-canvas");
+  photoEditorModal.querySelectorAll(".photo-tool-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!photoEditorState) return;
+      photoEditorState.tool = btn.dataset.tool;
+      photoEditorModal.querySelectorAll(".photo-tool-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    });
+  });
+  photoEditorModal.querySelector("#photo-color-picker").addEventListener("input", (e) => {
+    if (photoEditorState) photoEditorState.color = e.target.value;
+  });
+  photoEditorModal.querySelector("#photo-stroke-width").addEventListener("input", (e) => {
+    if (photoEditorState) photoEditorState.strokeWidth = Number(e.target.value);
+  });
+  photoEditorModal.querySelector("#photo-undo-btn").addEventListener("click", undoPhotoEditor);
+  photoEditorModal.querySelector("#photo-clear-btn").addEventListener("click", clearPhotoEditor);
+  photoEditorModal.querySelector("#photo-editor-save-btn").addEventListener("click", savePhotoEditor);
+  photoEditorModal.querySelector("#photo-editor-cancel-btn").addEventListener("click", cancelPhotoEditor);
+  photoEditorModal.querySelector("#photo-editor-close-btn").addEventListener("click", cancelPhotoEditor);
+
+  photoCanvas.style.touchAction = "none";
+  photoCanvas.addEventListener("pointerdown", (e) => {
+    const st = photoEditorState;
+    if (!st) return;
+    photoCanvas.setPointerCapture(e.pointerId);
+    const pt = photoCanvasPoint(e);
+    if (st.tool === "pen") {
+      st.drawing = true;
+      st.currentStroke = { type: "stroke", color: st.color, width: st.strokeWidth, points: [pt] };
+    } else if (st.tool === "text") {
+      openPhotoTextInput(pt, e.clientX, e.clientY);
+    }
+  });
+  photoCanvas.addEventListener("pointermove", (e) => {
+    const st = photoEditorState;
+    if (!st || !st.drawing) return;
+    const pt = photoCanvasPoint(e);
+    const last = st.currentStroke.points[st.currentStroke.points.length - 1];
+    st.currentStroke.points.push(pt);
+    st.ctx.strokeStyle = st.color;
+    st.ctx.lineWidth = st.strokeWidth;
+    st.ctx.lineCap = "round";
+    st.ctx.lineJoin = "round";
+    st.ctx.beginPath();
+    st.ctx.moveTo(last.x, last.y);
+    st.ctx.lineTo(pt.x, pt.y);
+    st.ctx.stroke();
+  });
+  photoCanvas.addEventListener("pointerup", endPhotoStroke);
+  photoCanvas.addEventListener("pointercancel", endPhotoStroke);
+  photoCanvas.addEventListener("pointerleave", () => { if (photoEditorState?.drawing) endPhotoStroke(); });
 
   // Category modal
   const catModal = document.getElementById("modal-category");

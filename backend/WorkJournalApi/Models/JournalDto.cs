@@ -29,4 +29,14 @@ public class ItemDto
     public int Percent { get; set; }
     public string? HomeCategoryId { get; set; }
     public bool IsPriority { get; set; }
+    public List<PhotoDto> Photos { get; set; } = new();
+}
+
+public class PhotoDto
+{
+    public string Id { get; set; } = "";
+    // Data URL (base64), already resized/compressed client-side and with any
+    // drawing/text annotations flattened in before upload.
+    public string DataUrl { get; set; } = "";
+    public string? CreatedAt { get; set; }
 }
