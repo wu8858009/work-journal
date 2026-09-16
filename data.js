@@ -195,7 +195,27 @@ async function apiFetch(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  // Only GETs are safe to silently retry (no risk of double-applying a write). This matters
+  // most right after login: the app immediately fires a burst of GETs to load the dashboard,
+  // and on Render's free tier the server can still be finishing its wake-up from sleep at that
+  // exact moment — without this, one flaky call in that burst would bounce the user straight
+  // back to the login screen seconds after a successful login.
+  const method = (options.method || "GET").toUpperCase();
+  const isRetryable = method === "GET";
+  const maxAttempts = isRetryable ? 5 : 1;
+  const retryDelayMs = 3000;
+
+  let res = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    } catch (e) {
+      res = null;
+    }
+    if (res && res.status < 500) break;
+    if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, retryDelayMs));
+  }
+  if (!res) throw new Error("伺服器目前無法連線，請稍後再試");
 
   if (res.status === 401) {
     Auth.logout();
