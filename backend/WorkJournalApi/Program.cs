@@ -53,7 +53,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var tokenVersion = int.Parse(principal.FindFirstValue("tokenVersion") ?? "0");
 
                 var db = context.HttpContext.RequestServices.GetRequiredService<MongoContext>();
-                var user = await db.Users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+                UserDocument? user;
+                try
+                {
+                    user = await db.Users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+                }
+                catch (Exception ex)
+                {
+                    // A transient DB hiccup (e.g. a free-tier host waking up, a brief Atlas
+                    // connection blip) shouldn't log the user out on every single request that
+                    // happens to land during it — the token already passed signature/expiry
+                    // validation. Skip the revocation check for this one request instead of
+                    // treating "couldn't check" the same as "definitely revoked".
+                    context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>()
+                        .LogWarning(ex, "Skipping token revocation check for user {UserId}: database unavailable", userId);
+                    return;
+                }
                 if (user is null)
                 {
                     context.Fail("帳號不存在");
