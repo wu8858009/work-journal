@@ -322,8 +322,10 @@ function renderEditor() {
 
   const catsHtml = j.categories.map((cat) => {
     const pct = categoryPercent(cat);
-    const itemsHtml = cat.items.length
-      ? cat.items.map((it, idx) => itemRowHtml(cat, it, idx)).join("")
+    // 標記「優先」的項目排到同一類別的最前面；同樣是否優先的項目之間，維持原本的順序。
+    const sortedItems = [...cat.items].sort((a, b) => (b.isPriority ? 1 : 0) - (a.isPriority ? 1 : 0));
+    const itemsHtml = sortedItems.length
+      ? sortedItems.map((it, idx) => itemRowHtml(cat, it, idx)).join("")
       : `<div class="cat-empty">尚無項目</div>`;
     return `
     <section class="card category-card" data-cat-id="${cat.id}">
@@ -392,7 +394,7 @@ function itemRowHtml(cat, it, idx) {
     </div>
     <div class="item-right">
       ${it.photos && it.photos.length ? `
-      <div class="item-photo-strip" title="共 ${it.photos.length} 張照片">
+      <div class="item-photo-strip" data-action="view-photos" data-cat="${cat.id}" data-item="${it.id}" title="共 ${it.photos.length} 張照片，點擊放大">
         <img src="${it.photos[0].dataUrl}" class="item-photo-thumb" alt="" />
         ${it.photos.length > 1 ? `<span class="item-photo-count">+${it.photos.length - 1}</span>` : ""}
       </div>` : ""}
@@ -445,7 +447,7 @@ function renderTimers() {
     return `<div class="empty-state"><p>請先選擇餐廳</p></div>`;
   }
 
-  const canManage = Auth.isAdmin();
+  const canManage = Auth.canEditDepartment(dept);
   const rows = state.lightTimer.rows || [];
   const now = new Date();
   const currentSeasonKey = getCurrentSeasonKey(now);
@@ -492,6 +494,7 @@ function renderTimers() {
   }).join("");
 
   return `
+  ${!canManage ? `<p class="settings-note">此餐廳僅開放查看，無法編輯。</p>` : ""}
   <p class="settings-note timer-legend">目前季節：${escapeHtml(seasons.find((s) => s.key === currentSeasonKey).label)}（6/7/8 月為夏季、12/1/2 月為冬季，其餘為春秋季節）；運作狀態依此欄位的時間自動判斷，時間格式無法辨識時不顯示狀態。</p>
   ${canManage ? `<button class="add-category-btn" data-action="add-timer">${ICONS.plus}<span>新增地點</span></button>` : ""}
   ${rows.length ? cards : `<div class="empty-state"><p>尚無定時器資料</p></div>`}`;
@@ -577,7 +580,7 @@ function renderMaintenance() {
     return `<div class="empty-state"><p>請先選擇餐廳</p></div>`;
   }
 
-  const canManage = Auth.isAdmin();
+  const canManage = Auth.canEditDepartment(dept);
   const tasks = state.maintenanceSchedule.tasks || [];
   const currentMonth = new Date().getMonth() + 1;
   const dueThisMonth = tasks.filter((t) => (t.activeMonths || []).includes(currentMonth)).length;
@@ -619,6 +622,7 @@ function renderMaintenance() {
   }).join("");
 
   return `
+  ${!canManage ? `<p class="settings-note">此餐廳僅開放查看，無法編輯。</p>` : ""}
   <p class="settings-note timer-legend">目前月份：${currentMonth} 月・共 ${tasks.length} 項保養作業，本月應執行 ${dueThisMonth} 項</p>
   ${canManage ? `<button class="add-category-btn" data-action="add-maintenance">${ICONS.plus}<span>新增保養項目</span></button>` : ""}
   ${tasks.length ? cards : `<div class="empty-state"><p>尚無保養排程資料</p></div>`}`;
@@ -747,7 +751,9 @@ function renderSettings() {
           <div class="user-row-name">${escapeHtml(u.displayName)}<span class="badge ${u.role === "Admin" ? "badge-role-admin" : "badge-role-user"}">${u.role === "Admin" ? "管理員" : "一般使用者"}</span>${!u.isApproved ? '<span class="badge badge-warning">待審核</span>' : ""}</div>
           <div class="user-row-username">帳號：${escapeHtml(u.username)}</div>
           <div class="dept-permission-chips">
-            ${u.departments && u.departments.length
+            ${u.allDepartments
+              ? `<span class="dept-permission-chip dept-permission-chip-all ${u.allDepartmentsCanEdit ? "" : "dept-permission-chip-view"}">${u.allDepartmentsCanEdit ? ICONS.edit : ICONS.eye}全部餐廳</span>`
+              : u.departments && u.departments.length
               ? u.departments.map((d) => `<span class="dept-permission-chip ${d.canEdit ? "" : "dept-permission-chip-view"}">${d.canEdit ? ICONS.edit : ICONS.eye}${escapeHtml(d.departmentName)}</span>`).join("")
               : `<span class="dept-permission-chip dept-permission-chip-empty">尚未指派餐廳</span>`}
           </div>
@@ -1200,6 +1206,155 @@ function cancelPhotoEditor() {
   photoEditorState = null;
 }
 
+// ---------------- Photo viewer (tap a card's photo to view full-size + zoom) ----------------
+
+let photoViewerState = null;
+
+function openPhotoViewer(photos, startIndex) {
+  photoViewerState = {
+    photos,
+    index: startIndex || 0,
+    scale: 1,
+    tx: 0,
+    ty: 0,
+    pointers: new Map(),
+    pinchStartDist: 0,
+    pinchStartScale: 1,
+    panStart: null,
+  };
+  document.getElementById("modal-photo-viewer").classList.add("open");
+  updatePhotoViewerImage();
+}
+
+function closePhotoViewer() {
+  document.getElementById("modal-photo-viewer").classList.remove("open");
+  photoViewerState = null;
+}
+
+function updatePhotoViewerImage() {
+  const s = photoViewerState;
+  if (!s) return;
+  s.scale = 1;
+  s.tx = 0;
+  s.ty = 0;
+  document.getElementById("photo-viewer-img").src = s.photos[s.index].dataUrl;
+  applyPhotoViewerTransform();
+  document.getElementById("photo-viewer-count").textContent = s.photos.length > 1 ? `${s.index + 1} / ${s.photos.length}` : "";
+  document.getElementById("photo-viewer-prev-btn").classList.toggle("hidden", s.photos.length <= 1);
+  document.getElementById("photo-viewer-next-btn").classList.toggle("hidden", s.photos.length <= 1);
+}
+
+function applyPhotoViewerTransform() {
+  const s = photoViewerState;
+  if (!s) return;
+  document.getElementById("photo-viewer-img").style.transform = `translate(${s.tx}px, ${s.ty}px) scale(${s.scale})`;
+}
+
+function photoViewerPrev() {
+  const s = photoViewerState;
+  if (!s || s.photos.length <= 1) return;
+  s.index = (s.index - 1 + s.photos.length) % s.photos.length;
+  updatePhotoViewerImage();
+}
+
+function photoViewerNext() {
+  const s = photoViewerState;
+  if (!s || s.photos.length <= 1) return;
+  s.index = (s.index + 1) % s.photos.length;
+  updatePhotoViewerImage();
+}
+
+// 縮放/拖曳都用 Pointer Events 統一處理滑鼠與觸控：兩指縮放依兩點距離變化換算比例，
+// 單指只有在已經放大時才拖曳平移；縮放跟拖曳外，滾輪(桌面)、雙擊/雙點也能切換縮放。
+function wirePhotoViewerEvents() {
+  const modal = document.getElementById("modal-photo-viewer");
+  const stage = document.getElementById("photo-viewer-stage");
+  const img = document.getElementById("photo-viewer-img");
+  const MAX_SCALE = 5;
+
+  document.getElementById("photo-viewer-close-btn").addEventListener("click", closePhotoViewer);
+  document.getElementById("photo-viewer-prev-btn").addEventListener("click", photoViewerPrev);
+  document.getElementById("photo-viewer-next-btn").addEventListener("click", photoViewerNext);
+
+  stage.addEventListener("click", (e) => {
+    if (e.target === stage && photoViewerState && photoViewerState.scale <= 1) closePhotoViewer();
+  });
+
+  stage.addEventListener("wheel", (e) => {
+    if (!photoViewerState) return;
+    e.preventDefault();
+    const s = photoViewerState;
+    const delta = -e.deltaY * 0.0015;
+    s.scale = Math.min(MAX_SCALE, Math.max(1, s.scale + s.scale * delta));
+    if (s.scale === 1) { s.tx = 0; s.ty = 0; }
+    applyPhotoViewerTransform();
+  }, { passive: false });
+
+  img.addEventListener("dblclick", () => {
+    if (!photoViewerState) return;
+    const s = photoViewerState;
+    s.scale = s.scale > 1 ? 1 : 2.5;
+    s.tx = 0;
+    s.ty = 0;
+    applyPhotoViewerTransform();
+  });
+
+  stage.addEventListener("pointerdown", (e) => {
+    const s = photoViewerState;
+    if (!s) return;
+    stage.setPointerCapture(e.pointerId);
+    s.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (s.pointers.size === 2) {
+      const pts = [...s.pointers.values()];
+      s.pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      s.pinchStartScale = s.scale;
+    } else if (s.pointers.size === 1) {
+      s.panStart = { x: e.clientX, y: e.clientY, tx: s.tx, ty: s.ty };
+    }
+  });
+
+  stage.addEventListener("pointermove", (e) => {
+    const s = photoViewerState;
+    if (!s || !s.pointers.has(e.pointerId)) return;
+    s.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (s.pointers.size === 2) {
+      const pts = [...s.pointers.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (s.pinchStartDist > 0) {
+        s.scale = Math.min(MAX_SCALE, Math.max(1, s.pinchStartScale * (dist / s.pinchStartDist)));
+        applyPhotoViewerTransform();
+      }
+    } else if (s.pointers.size === 1 && s.scale > 1 && s.panStart) {
+      s.tx = s.panStart.tx + (e.clientX - s.panStart.x);
+      s.ty = s.panStart.ty + (e.clientY - s.panStart.y);
+      applyPhotoViewerTransform();
+    }
+  });
+
+  const endPointer = (e) => {
+    const s = photoViewerState;
+    if (!s) return;
+    s.pointers.delete(e.pointerId);
+    if (s.pointers.size < 2) s.pinchStartDist = 0;
+    if (s.pointers.size === 0) s.panStart = null;
+    if (s.scale <= 1) {
+      s.scale = 1;
+      s.tx = 0;
+      s.ty = 0;
+      applyPhotoViewerTransform();
+    }
+  };
+  stage.addEventListener("pointerup", endPointer);
+  stage.addEventListener("pointercancel", endPointer);
+
+  document.addEventListener("keydown", (e) => {
+    if (!modal.classList.contains("open")) return;
+    if (e.key === "Escape") closePhotoViewer();
+    else if (e.key === "ArrowLeft") photoViewerPrev();
+    else if (e.key === "ArrowRight") photoViewerNext();
+  });
+}
+
 // ---------------- Modal: Category ----------------
 
 function openCategoryModal(existingId) {
@@ -1240,8 +1395,10 @@ async function saveCategoryModal() {
 // ---------------- Modal: User (Admin only) ----------------
 
 // existingAccess: [{ departmentId, canEdit }, ...] — 已勾選的餐廳；新帳號傳空陣列即可（預設全部不勾）。
-function renderDepartmentChecklist(container, existingAccess) {
-  container.innerHTML = state.departments.length
+// allDepartments/allDepartmentsCanEdit：這個帳號是否開了「全部餐廳」特殊選項——開了就不看
+// 個別勾選，一律套用到現有及日後新增的每一間餐廳。
+function renderDepartmentChecklist(container, existingAccess, allDepartments, allDepartmentsCanEdit) {
+  const listHtml = state.departments.length
     ? state.departments.map((d) => {
         const existing = existingAccess.find((x) => x.departmentId === d.id);
         const checked = !!existing;
@@ -1258,6 +1415,25 @@ function renderDepartmentChecklist(container, existingAccess) {
       }).join("")
     : `<p class="cat-empty">尚無餐廳，請先在「餐廳管理」新增</p>`;
 
+  container.innerHTML = `
+    <label class="checkbox-row dept-all-row">
+      <input type="checkbox" class="dept-all-checkbox" ${allDepartments ? "checked" : ""} />
+      <span>全部餐廳（含日後新增的餐廳）</span>
+      <select class="field-input field-select dept-access-select dept-all-select" ${allDepartments ? "" : "disabled"}>
+        <option value="edit" ${allDepartmentsCanEdit ? "selected" : ""}>可編輯</option>
+        <option value="view" ${!allDepartmentsCanEdit ? "selected" : ""}>僅查看</option>
+      </select>
+    </label>
+    <div class="dept-individual-list ${allDepartments ? "dept-individual-list-disabled" : ""}">${listHtml}</div>`;
+
+  const allCheckbox = container.querySelector(".dept-all-checkbox");
+  const allSelect = container.querySelector(".dept-all-select");
+  const individualList = container.querySelector(".dept-individual-list");
+  allCheckbox.addEventListener("change", () => {
+    allSelect.disabled = !allCheckbox.checked;
+    individualList.classList.toggle("dept-individual-list-disabled", allCheckbox.checked);
+  });
+
   container.querySelectorAll("[data-dept-checkbox]").forEach((cb) => {
     cb.addEventListener("change", () => {
       const select = container.querySelector(`[data-dept-access="${cb.value}"]`);
@@ -1273,13 +1449,20 @@ function readDepartmentChecklist(container) {
   }));
 }
 
+function readAllDepartmentsToggle(container) {
+  return {
+    allDepartments: container.querySelector(".dept-all-checkbox").checked,
+    allDepartmentsCanEdit: container.querySelector(".dept-all-select").value === "edit",
+  };
+}
+
 function openUserModal() {
   const modal = document.getElementById("modal-user");
   modal.querySelector("#user-field-username").value = "";
   modal.querySelector("#user-field-displayname").value = "";
   modal.querySelector("#user-field-password").value = "";
   modal.querySelector("#user-field-role").value = "User";
-  renderDepartmentChecklist(modal.querySelector("#user-field-departments-list"), []);
+  renderDepartmentChecklist(modal.querySelector("#user-field-departments-list"), [], false, false);
   showModal(modal);
 }
 
@@ -1289,7 +1472,9 @@ async function saveUserModal() {
   const password = modal.querySelector("#user-field-password").value;
   const displayName = modal.querySelector("#user-field-displayname").value.trim();
   const role = modal.querySelector("#user-field-role").value;
-  const departments = readDepartmentChecklist(modal.querySelector("#user-field-departments-list"));
+  const departmentsListEl = modal.querySelector("#user-field-departments-list");
+  const departments = readDepartmentChecklist(departmentsListEl);
+  const { allDepartments, allDepartmentsCanEdit } = readAllDepartmentsToggle(departmentsListEl);
 
   if (!username || !password) {
     alert("請輸入帳號與密碼");
@@ -1297,7 +1482,7 @@ async function saveUserModal() {
   }
 
   try {
-    await Store.createUser({ username, password, displayName, role, departments });
+    await Store.createUser({ username, password, displayName, role, departments, allDepartments, allDepartmentsCanEdit });
     state.users = await Store.getUsers();
     state.auditLogs = await Store.getAuditLogs();
     closeModal(modal);
@@ -1398,16 +1583,18 @@ function openUserDepartmentsModal(userId) {
   const target = state.users.find((u) => String(u.id) === String(userId));
   if (!target) return;
   modal.dataset.userId = userId;
-  renderDepartmentChecklist(modal.querySelector("#user-departments-list"), target.departments);
+  renderDepartmentChecklist(modal.querySelector("#user-departments-list"), target.departments, target.allDepartments, target.allDepartmentsCanEdit);
   showModal(modal);
 }
 
 async function saveUserDepartmentsModal() {
   const modal = document.getElementById("modal-user-departments");
   const userId = modal.dataset.userId;
-  const departments = readDepartmentChecklist(modal.querySelector("#user-departments-list"));
+  const departmentsListEl = modal.querySelector("#user-departments-list");
+  const departments = readDepartmentChecklist(departmentsListEl);
+  const { allDepartments, allDepartmentsCanEdit } = readAllDepartmentsToggle(departmentsListEl);
   try {
-    await Store.setUserDepartments(userId, departments);
+    await Store.setUserDepartments(userId, departments, allDepartments, allDepartmentsCanEdit);
     state.users = await Store.getUsers();
     state.auditLogs = await Store.getAuditLogs();
     closeModal(modal);
@@ -1605,12 +1792,12 @@ function buildPrintHtml(j) {
   </div>`;
 }
 
-// 實測發現：不管是 iOS Safari 還是桌面版 Edge/WebView2，都不會照 CSS 的 @page/named-page
-// 設定真的把方向切成橫向 —— 列印對話框裡「配置」永遠還是顯示「直向」，即使我們的 CSS
-// 要求橫向。與其讓 JS 假設一個瀏覽器實際上不會採用的方向（算出來的可用寬度就會跟真正印出來
-// 的頁面對不上，內容才會沒對齊、留白位置不對），乾脆固定都用直向 A4 的尺寸去算，跟兩邊瀏覽器
-// 實際的預設行為一致。使用者仍可以自己在列印對話框裡手動切成橫向，寬度算法只是偏保守
-// （會留一點空白，但不會裁到資料）。
+// CSS 沒辦法可靠地強制瀏覽器的列印方向（iOS Safari、桌面版 Edge/WebView2 都不一定會採用
+// @page 的 landscape 設定），使用者本身反而會自己在列印對話框裡手動把「配置」切成橫向
+// （尤其定時器/保養排程這種欄位多的表格）。這個變數只是「這次匯出，預期使用者比較可能
+// 選哪個方向」的猜測值，讓算可用寬度時跟使用者實際會選的方向對得上，不是真的能控制瀏覽器。
+let printIsLandscape = false;
+
 function fitPrintSheetToOnePage() {
   const area = document.getElementById("print-area");
   const sheet = area.querySelector(".print-sheet");
@@ -1623,8 +1810,8 @@ function fitPrintSheetToOnePage() {
 
   const mmToPx = 96 / 25.4;
   const marginMm = 5; // 對應 @page 的 margin: 5mm — 兩邊要一致，否則算出來的可用寬度會跟印表機/PDF 引擎實際可印的範圍對不上
-  const pageWidthMm = 210;
-  const pageHeightMm = 297;
+  const pageWidthMm = printIsLandscape ? 297 : 210;
+  const pageHeightMm = printIsLandscape ? 210 : 297;
   const usableWidthPx = (pageWidthMm - marginMm * 2) * mmToPx;
   const usableHeightPx = (pageHeightMm - marginMm * 2) * mmToPx;
 
@@ -1674,6 +1861,7 @@ window.addEventListener("afterprint", () => {
 function handleExport() {
   const j = getCurrentJournal();
   if (!j) return;
+  printIsLandscape = false;
   const container = document.getElementById("print-area");
   container.innerHTML = buildPrintHtml(j);
   fitPrintSheetToOnePage();
@@ -1703,7 +1891,7 @@ function buildTimerPrintHtml() {
     </tr>`).join("");
 
   return `
-  <div class="print-sheet">
+  <div class="print-sheet print-sheet-wide">
     <h1 class="p-company">${escapeHtml(state.settings.companyName)}</h1>
     <h2 class="p-title">${escapeHtml(dept)}燈光定時器</h2>
     <table class="p-table pt-table">
@@ -1728,6 +1916,7 @@ function buildTimerPrintHtml() {
 }
 
 function handleExportTimers() {
+  printIsLandscape = true;
   const container = document.getElementById("print-area");
   container.innerHTML = buildTimerPrintHtml();
   fitPrintSheetToOnePage();
@@ -1757,7 +1946,7 @@ function buildMaintenancePrintHtml() {
   const monthHeaders = Array.from({ length: 12 }, (_, i) => `<th>${i + 1}</th>`).join("");
 
   return `
-  <div class="print-sheet">
+  <div class="print-sheet print-sheet-wide">
     <h1 class="p-company">${escapeHtml(state.settings.companyName)}</h1>
     <h2 class="p-title">${escapeHtml(dept)}保養排程</h2>
     <table class="p-table mnt-print-table">
@@ -1773,6 +1962,7 @@ function buildMaintenancePrintHtml() {
 }
 
 function handleExportMaintenance() {
+  printIsLandscape = true;
   const container = document.getElementById("print-area");
   container.innerHTML = buildMaintenancePrintHtml();
   fitPrintSheetToOnePage();
@@ -1785,6 +1975,8 @@ function handleExportMaintenance() {
 // ---------------- Event wiring ----------------
 
 function wireEvents() {
+  wirePhotoViewerEvents();
+
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.view = btn.dataset.view;
@@ -1811,6 +2003,12 @@ function wireEvents() {
     else if (action === "delete-category") handleDeleteCategory(el.dataset.cat);
     else if (action === "edit-item") openItemModal(el.dataset.cat, el.dataset.item);
     else if (action === "toggle-item-priority") handleToggleItemPriority(el.dataset.cat, el.dataset.item);
+    else if (action === "view-photos") {
+      const j = getCurrentJournal();
+      const cat = j && j.categories.find((c) => c.id === el.dataset.cat);
+      const it = cat && cat.items.find((i) => i.id === el.dataset.item);
+      if (it && it.photos && it.photos.length) openPhotoViewer(it.photos, 0);
+    }
     else if (action === "open-journal") {
       state.currentId = el.dataset.id;
       state.view = "editor";
@@ -2125,9 +2323,15 @@ function wireLoginEvents() {
     const remember = document.getElementById("login-remember").checked;
     if (!username || !password) return;
     const btn = document.getElementById("login-submit-btn");
+    const noticeEl = document.getElementById("login-notice");
+    const errEl = document.getElementById("login-error");
     btn.disabled = true;
+    errEl.classList.add("hidden");
     try {
-      const data = await Auth.login(username, password, selectedDepartment, remember);
+      const data = await Auth.login(username, password, selectedDepartment, remember, () => {
+        noticeEl.textContent = "伺服器正在啟動中，請稍候片刻（免費方案閒置後需要重新喚醒，最多約 1 分鐘）...";
+        noticeEl.classList.remove("hidden");
+      });
       await startApp();
       if (data.departmentMismatch && data.currentDepartment) {
         alert(`已自動切換至帳號所屬餐廳：${data.currentDepartment}`);

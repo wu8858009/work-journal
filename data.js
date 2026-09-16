@@ -81,15 +81,41 @@ const Auth = {
   // 登入時選的餐廳僅供帶入方便，真正可用的餐廳以帳號實際被指派的清單為準。
   // 若選擇的餐廳不在帳號權限內（或沒選），自動改用帳號實際所屬餐廳的第一筆。
   // remember=true 時登入狀態會保留到手動登出為止；false 則只在這次瀏覽器/App 開啟期間有效。
-  async login(username, password, selectedDepartment, remember) {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
+  // onRetry(attempt, maxAttempts), if given, is called each time a request fails in a way
+  // that looks like the free-tier host waking up from sleep (network error, or 5xx) rather
+  // than a definitive answer, so the UI can show a "server is starting up" message instead
+  // of failing immediately — cold starts on Render's free tier can take 50+ seconds.
+  async login(username, password, selectedDepartment, remember, onRetry) {
+    const maxAttempts = 10;
+    const retryDelayMs = 6000;
+
+    let res = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        res = await fetch(`${API_BASE}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+      } catch (e) {
+        res = null;
+      }
+
+      // A real answer from the app (success, or a definitive rejection like wrong
+      // password / not approved) — stop here. Only network failures and 5xx (server
+      // still booting) are worth retrying.
+      if (res && res.status < 500) break;
+
+      if (attempt < maxAttempts) {
+        onRetry?.(attempt, maxAttempts);
+        await new Promise((r) => setTimeout(r, retryDelayMs));
+      }
+    }
+
+    if (!res) throw new Error("伺服器目前無法連線，請稍後再試");
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || "帳號或密碼錯誤");
+      throw new Error(err.message || `請求失敗 (${res.status})`);
     }
     const data = await res.json();
 
@@ -240,8 +266,11 @@ const Store = {
   },
 
   // departments: [{ departmentId, canEdit }, ...]
-  async setUserDepartments(id, departments) {
-    return apiFetch(`/users/${id}/departments`, { method: "PUT", body: JSON.stringify({ departments }) });
+  async setUserDepartments(id, departments, allDepartments, allDepartmentsCanEdit) {
+    return apiFetch(`/users/${id}/departments`, {
+      method: "PUT",
+      body: JSON.stringify({ departments, allDepartments: !!allDepartments, allDepartmentsCanEdit: !!allDepartmentsCanEdit }),
+    });
   },
 
   // ---- Departments / 餐廳 ----
