@@ -1,4 +1,4 @@
-const CACHE_NAME = "wj-cache-v6";
+const CACHE_NAME = "wj-cache-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,6 +23,14 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // Never cache/intercept API calls: they carry a per-login Authorization header (the cache
+  // key is just the URL, not the header) and can be authenticated or per-department data, so
+  // a stale cached response can silently stand in for a live one — e.g. an old cached 401 from
+  // a past session getting replayed as if it were the current login's answer, or a cached empty
+  // journals list masking real data. Let those always hit the network directly.
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith("/api/")) return;
+
   event.respondWith(
     fetch(event.request, { cache: "no-store" })
       .then((res) => {
