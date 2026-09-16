@@ -241,7 +241,7 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .view-root {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 14px calc(96px + env(safe-area-inset-bottom, 0px));
+  padding: 16px 14px calc(96px + max(12px, env(safe-area-inset-bottom, 0px)));
   -webkit-overflow-scrolling: touch;
 }
 
@@ -258,7 +258,11 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
   display: flex;
   background: var(--c-surface);
   border-top: 1px solid var(--c-border);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* max(...) guarantees breathing room below the icons even on a device/mode that
+     reports 0 here (e.g. viewed in a plain browser tab instead of installed standalone) —
+     otherwise the "automatic" per-device inset silently does nothing and the nav sits flush
+     against the screen edge, colliding with the OS gesture bar in standalone/PWA mode. */
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
   z-index: 10;
 }
@@ -485,7 +489,7 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .fab {
   position: absolute;
   right: 18px;
-  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(78px + max(12px, env(safe-area-inset-bottom, 0px)));
   width: 50px;
   height: 50px;
   border-radius: 50%;
