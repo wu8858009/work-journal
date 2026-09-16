@@ -23,6 +23,10 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // Some browser extensions' content scripts issue fetches from within the page's world,
+  // which this service worker ends up intercepting too even though they're not ours to
+  // handle — the Cache API only supports http/https, so caching one of those throws.
+  if (!event.request.url.startsWith("http")) return;
   // Never cache/intercept API calls: they carry a per-login Authorization header (the cache
   // key is just the URL, not the header) and can be authenticated or per-department data, so
   // a stale cached response can silently stand in for a live one — e.g. an old cached 401 from

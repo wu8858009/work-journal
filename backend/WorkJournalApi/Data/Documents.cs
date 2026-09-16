@@ -18,6 +18,10 @@ public class UserDocument
     public int TokenVersion { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<UserDepartmentAccessDocument> Departments { get; set; } = new();
+    // 「全部餐廳」開關：開啟後不看 Departments 清單，一律套用到現有及日後新增的每一間餐廳，
+    // 不用管理員每新增一間餐廳就要記得回來替這個帳號多勾一次。
+    public bool AllDepartments { get; set; }
+    public bool AllDepartmentsCanEdit { get; set; }
 }
 
 public class UserDepartmentAccessDocument
