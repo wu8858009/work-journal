@@ -1407,7 +1407,7 @@ function renderDepartmentChecklist(container, existingAccess, allDepartments, al
       <label class="checkbox-row">
         <input type="checkbox" value="${d.id}" data-dept-checkbox ${checked ? "checked" : ""} />
         <span>${escapeHtml(d.name)}</span>
-        <select class="field-input field-select dept-access-select" data-dept-access="${d.id}" ${checked ? "" : "disabled"}>
+        <select class="field-input field-select dept-access-select" data-dept-access="${d.id}" ${checked ? "" : "disabled hidden"}>
           <option value="edit" ${canEdit ? "selected" : ""}>可編輯</option>
           <option value="view" ${!canEdit ? "selected" : ""}>僅查看</option>
         </select>
@@ -1419,7 +1419,7 @@ function renderDepartmentChecklist(container, existingAccess, allDepartments, al
     <label class="checkbox-row dept-all-row">
       <input type="checkbox" class="dept-all-checkbox" ${allDepartments ? "checked" : ""} />
       <span>全部餐廳（含日後新增的餐廳）</span>
-      <select class="field-input field-select dept-access-select dept-all-select" ${allDepartments ? "" : "disabled"}>
+      <select class="field-input field-select dept-access-select dept-all-select" ${allDepartments ? "" : "disabled hidden"}>
         <option value="edit" ${allDepartmentsCanEdit ? "selected" : ""}>可編輯</option>
         <option value="view" ${!allDepartmentsCanEdit ? "selected" : ""}>僅查看</option>
       </select>
@@ -1431,6 +1431,7 @@ function renderDepartmentChecklist(container, existingAccess, allDepartments, al
   const individualList = container.querySelector(".dept-individual-list");
   allCheckbox.addEventListener("change", () => {
     allSelect.disabled = !allCheckbox.checked;
+    allSelect.hidden = !allCheckbox.checked;
     individualList.classList.toggle("dept-individual-list-disabled", allCheckbox.checked);
   });
 
@@ -1438,6 +1439,7 @@ function renderDepartmentChecklist(container, existingAccess, allDepartments, al
     cb.addEventListener("change", () => {
       const select = container.querySelector(`[data-dept-access="${cb.value}"]`);
       select.disabled = !cb.checked;
+      select.hidden = !cb.checked;
     });
   });
 }
