@@ -790,6 +790,7 @@ function renderSettings() {
             <option value="User" ${u.role === "User" ? "selected" : ""}>一般使用者</option>
             <option value="Admin" ${u.role === "Admin" ? "selected" : ""}>管理員</option>
           </select>
+          <button class="icon-btn" data-action="rename-user" data-id="${u.id}" title="更改名稱">${ICONS.edit}</button>
           <button class="icon-btn" data-action="manage-user-departments" data-id="${u.id}" title="餐廳權限">${ICONS.store}</button>
           <button class="icon-btn" data-action="reset-password" data-id="${u.id}" title="重設密碼">${ICONS.key}</button>
           <button class="icon-btn icon-btn-danger" data-action="delete-user" data-id="${u.id}" title="刪除">${ICONS.trash}</button>
@@ -1660,6 +1661,26 @@ async function saveUserDepartmentsModal() {
 
 // ---------------- Departments / 餐廳管理 (Admin only) ----------------
 
+async function handleRenameUser(id) {
+  const u = state.users.find((x) => String(x.id) === String(id));
+  if (!u) return;
+  const name = prompt(`更改「${u.username}」的顯示名稱`, u.displayName);
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === u.displayName) return;
+  try {
+    await Store.renameUser(u.id, trimmed);
+    state.users = await Store.getUsers();
+    state.auditLogs = await Store.getAuditLogs();
+    // 改的是自己：標題列、設定頁的「登入帳號」是讀登入時存的名稱，要一併更新。
+    const me = Auth.getUser();
+    if (me && me.username === u.username) Auth.setUser({ ...me, displayName: trimmed });
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function handleAddDepartment() {
   const name = prompt("請輸入餐廳名稱");
   if (!name || !name.trim()) return;
@@ -2072,6 +2093,7 @@ function wireEvents() {
     else if (action === "logout") handleLogout();
     else if (action === "add-user") openUserModal();
     else if (action === "delete-user") handleDeleteUser(el.dataset.id);
+    else if (action === "rename-user") handleRenameUser(el.dataset.id);
     else if (action === "reset-password") openResetPasswordModal(el.dataset.id);
     else if (action === "approve-user") handleApproveUser(el.dataset.id);
     else if (action === "approve-reset-request") openApprovePasswordResetModal(el.dataset.id);

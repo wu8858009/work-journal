@@ -70,6 +70,10 @@ const Auth = {
     }
   },
 
+  setUser(user) {
+    this._storage().setItem(this.USER_KEY, JSON.stringify(user));
+  },
+
   setMyDepartments(departments) {
     this._storage().setItem(this.MY_DEPARTMENTS_KEY, JSON.stringify(departments || []));
   },
@@ -283,6 +287,10 @@ const Store = {
 
   async changeUserRole(id, role) {
     return apiFetch(`/users/${id}/role`, { method: "PUT", body: JSON.stringify({ role }) });
+  },
+
+  async renameUser(id, displayName) {
+    return apiFetch(`/users/${id}/display-name`, { method: "PUT", body: JSON.stringify({ displayName }) });
   },
 
   async approveUser(id) {
