@@ -903,7 +903,7 @@ function renderSettings() {
     <div class="settings-section-header">
       <div class="settings-section-heading">
         <span class="settings-section-title"><span class="online-dot"></span>目前在線 <span class="badge badge-soft" id="online-users-count">${state.onlineUsers.length} 人</span></span>
-        <p class="settings-section-subtitle">最近 100 秒內有開著軟體的帳號，每 30 秒自動更新</p>
+        <p class="settings-section-subtitle">有開著軟體的帳號，約每 5 秒自動更新</p>
       </div>
     </div>
     <div id="online-users-list">${renderOnlineUsersRows()}</div>
@@ -2330,16 +2330,34 @@ function stopPresence() {
   state.onlineUsers = [];
 }
 
-// 每 45 秒回報一次「我還在線上」；管理員另外每 30 秒更新一次線上名單。
+// 每 10 秒回報一次「我還在線上」；關掉頁面/App 時立刻通知下線；管理員每 5 秒更新一次名單，
+// 所以上線、下線大約幾秒內就會反映在名單上。
+let presenceUnloadWired = false;
+
 function startPresence() {
   stopPresence();
   const beat = () => { if (Auth.isLoggedIn()) Store.presenceHeartbeat(Auth.getCurrentDepartment()).catch(() => {}); };
   beat();
-  presenceTimers.push(setInterval(beat, 45000));
+  presenceTimers.push(setInterval(beat, 10000));
   if (Auth.isAdmin()) {
     refreshOnlineUsers();
-    presenceTimers.push(setInterval(refreshOnlineUsers, 30000));
+    presenceTimers.push(setInterval(refreshOnlineUsers, 5000));
   }
+
+  if (presenceUnloadWired) return;
+  presenceUnloadWired = true;
+  // 分頁被瀏覽器降速後切回來，馬上補報一次並更新名單，不用等下一個計時。
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !Auth.isLoggedIn()) return;
+    beat();
+    refreshOnlineUsers();
+  });
+  // 關閉分頁/視窗：用 keepalive 讓請求在頁面卸載後仍能送出（一般 fetch 會被中斷）。
+  window.addEventListener("pagehide", () => {
+    const token = Auth.getToken();
+    if (!token) return;
+    fetch(`${API_BASE}/presence`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+  });
 }
 
 async function refreshOnlineUsers() {

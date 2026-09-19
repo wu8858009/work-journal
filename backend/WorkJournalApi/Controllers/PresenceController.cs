@@ -11,8 +11,10 @@ namespace WorkJournalApi.Controllers;
 [Authorize]
 public class PresenceController : ControllerBase
 {
-    // Clients ping every ~45s; a couple of missed beats still counts as online.
-    private static readonly TimeSpan OnlineWindow = TimeSpan.FromSeconds(100);
+    // Clients ping every 10s and sign off explicitly on close, so this window only matters for
+    // crashes/lost connections. It stays generous because browsers throttle timers in
+    // long-hidden tabs to about once a minute, which must not read as "went offline".
+    private static readonly TimeSpan OnlineWindow = TimeSpan.FromSeconds(75);
 
     private readonly MongoContext _db;
 
