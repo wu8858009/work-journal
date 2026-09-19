@@ -70,6 +70,10 @@ const Auth = {
     }
   },
 
+  setMyDepartments(departments) {
+    this._storage().setItem(this.MY_DEPARTMENTS_KEY, JSON.stringify(departments || []));
+  },
+
   // 系統管理員不受餐廳綁定限制，一律視為可編輯。一般使用者依 UserDepartments 的 CanEdit 判斷；
   // 未被指派的餐廳（理論上不會出現在畫面上，因為後端已依權限篩選）視為不可編輯。
   canEditDepartment(name) {

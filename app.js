@@ -245,6 +245,15 @@ function canEditJournal(j) {
   return Auth.canEditDepartment(j.department);
 }
 
+// 「切換餐廳」下拉選單可列出的餐廳：一律以帳號的餐廳權限為準（包含管理員自己）。
+// 勾了「全部餐廳」時後端會回傳全部餐廳；只勾部分餐廳就只列那幾間。管理員若完全沒指派
+// 任何餐廳，才退回列出全部，避免登入後選單是空的。
+function getSwitchableDepartmentNames() {
+  const assigned = Auth.getMyDepartments().map((d) => d.departmentName).filter(Boolean);
+  if (assigned.length === 0 && Auth.isAdmin()) return state.departments.map((d) => d.name);
+  return assigned;
+}
+
 // 目前帳號可以「編輯」的餐廳名稱清單：管理員看全部餐廳，一般使用者只看自己被指派且可編輯的餐廳。
 function getEditableDepartmentNames() {
   if (Auth.isAdmin()) return state.departments.map((d) => d.name);
@@ -347,7 +356,7 @@ function renderEditor() {
 
   // 這個下拉選單是「切換目前餐廳」的捷徑（跟設定頁的「目前餐廳」是同一組邏輯/同一個
   // data-action），選別的餐廳會直接換去看那間餐廳自己的週誌，不是把這份週誌改歸屬到別的餐廳。
-  const myDepartmentNames = Auth.isAdmin() ? state.departments.map((d) => d.name) : Auth.getMyDepartments().map((d) => d.departmentName);
+  const myDepartmentNames = getSwitchableDepartmentNames();
   const departmentOptions = Array.from(new Set([j.department, ...myDepartmentNames].filter(Boolean)));
 
   return `
@@ -791,7 +800,7 @@ function renderSettings() {
   </div>` : "";
 
   // 系統管理員不受餐廳綁定限制，切換選單顯示全部餐廳；一般使用者僅顯示自己被指派的餐廳。
-  const myDepartmentNames = Auth.isAdmin() ? state.departments.map((d) => d.name) : Auth.getMyDepartments().map((d) => d.departmentName);
+  const myDepartmentNames = getSwitchableDepartmentNames();
   const currentDepartmentHtml = myDepartmentNames.length > 1 ? `
     <div class="meta-row">
       <label class="meta-label">目前餐廳</label>
@@ -1600,6 +1609,19 @@ async function saveUserDepartmentsModal() {
     state.users = await Store.getUsers();
     state.auditLogs = await Store.getAuditLogs();
     closeModal(modal);
+
+    // 改的是自己這個帳號時，登入當下快取的餐廳權限就過期了，要同步更新，
+    // 「部門」「目前餐廳」下拉選單才會馬上反映新的勾選結果。
+    const me = Auth.getUser();
+    const self = me && state.users.find((u) => u.username === me.username);
+    if (self) {
+      Auth.setMyDepartments(self.departments);
+      const names = getSwitchableDepartmentNames();
+      if (names.length && !names.includes(Auth.getCurrentDepartment())) {
+        await handleSwitchDepartment(names[0]);
+        return;
+      }
+    }
     render();
   } catch (err) {
     alert(err.message);
