@@ -327,6 +327,19 @@ const Store = {
     await apiFetch(`/password-reset-requests/${id}`, { method: "DELETE" });
   },
 
+  // ---- Presence (who is online) ----
+  async presenceHeartbeat(department) {
+    return apiFetch("/presence/heartbeat", { method: "POST", body: JSON.stringify({ department: department || "" }) });
+  },
+
+  async presenceSignOff() {
+    return apiFetch("/presence", { method: "DELETE" });
+  },
+
+  async getOnlineUsers() {
+    return apiFetch("/presence");
+  },
+
   // ---- Audit log (Admin only) ----
   async getAuditLogs() {
     return apiFetch("/audit-logs");

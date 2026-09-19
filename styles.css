@@ -1143,3 +1143,14 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
   .mnt-print-table .mnt-print-name { text-align: left; width: 16%; }
   .mnt-print-table .mnt-print-months { text-align: left; width: 12%; }
 }
+
+/* ---------- Online users (admin) ---------- */
+.online-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c-success); box-shadow: 0 0 0 3px var(--c-success-bg); flex-shrink: 0; margin-right: 8px; }
+.online-user-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--c-border); }
+.online-user-row:first-child { border-top: none; }
+.online-user-row .online-dot { margin-right: 0; }
+.online-user-info { flex: 1; min-width: 0; }
+.online-user-name { font-size: 14px; font-weight: 600; color: var(--c-text); }
+.online-user-self { font-weight: 400; color: var(--c-text-faint); margin-left: 4px; }
+.online-user-meta { font-size: 12px; color: var(--c-text-soft); margin-top: 2px; }
+.online-user-ago { font-size: 12px; color: var(--c-text-faint); white-space: nowrap; }

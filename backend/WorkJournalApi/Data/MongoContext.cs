@@ -25,6 +25,7 @@ public class MongoContext
     public IMongoCollection<PasswordResetRequestDocument> PasswordResetRequests => Database.GetCollection<PasswordResetRequestDocument>("PasswordResetRequests");
     public IMongoCollection<LightTimerDocument> LightTimers => Database.GetCollection<LightTimerDocument>("LightTimers");
     public IMongoCollection<MaintenanceScheduleDocument> MaintenanceSchedules => Database.GetCollection<MaintenanceScheduleDocument>("MaintenanceSchedules");
+    public IMongoCollection<PresenceDocument> Presence => Database.GetCollection<PresenceDocument>("Presence");
     private IMongoCollection<CounterDocument> Counters => Database.GetCollection<CounterDocument>("Counters");
 
     // Atomically hands out the next int id for a given counter (e.g. "users", "departments"),

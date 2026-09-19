@@ -41,6 +41,7 @@ const ICONS = {
 };
 
 const state = {
+  onlineUsers: [],
   settings: null,
   journals: [],
   currentId: null,
@@ -897,6 +898,17 @@ function renderSettings() {
     </div>
   </div>` : "";
 
+  const onlineUsersHtml = Auth.isAdmin() ? `
+  <div class="card settings-card">
+    <div class="settings-section-header">
+      <div class="settings-section-heading">
+        <span class="settings-section-title"><span class="online-dot"></span>目前在線 <span class="badge badge-soft" id="online-users-count">${state.onlineUsers.length} 人</span></span>
+        <p class="settings-section-subtitle">最近 100 秒內有開著軟體的帳號，每 30 秒自動更新</p>
+      </div>
+    </div>
+    <div id="online-users-list">${renderOnlineUsersRows()}</div>
+  </div>` : "";
+
   const pendingUserCount = state.users.filter((u) => !u.isApproved).length;
   const adminPanelHtml = Auth.isAdmin() ? `
   <div class="admin-panel">
@@ -910,9 +922,11 @@ function renderSettings() {
     <div class="admin-stats-grid">
       <div class="admin-stat-tile"><span class="admin-stat-value">${state.users.length}</span><span class="admin-stat-label">帳號總數</span></div>
       <div class="admin-stat-tile ${pendingUserCount ? "admin-stat-tile-warning" : ""}"><span class="admin-stat-value">${pendingUserCount}</span><span class="admin-stat-label">待審核帳號</span></div>
+      <div class="admin-stat-tile"><span class="admin-stat-value" id="online-users-tile">${state.onlineUsers.length}</span><span class="admin-stat-label">目前在線</span></div>
       <div class="admin-stat-tile"><span class="admin-stat-value">${state.departments.length}</span><span class="admin-stat-label">餐廳數</span></div>
       <div class="admin-stat-tile ${state.passwordResetRequests.length ? "admin-stat-tile-warning" : ""}"><span class="admin-stat-value">${state.passwordResetRequests.length}</span><span class="admin-stat-label">待處理密碼申請</span></div>
     </div>
+    ${onlineUsersHtml}
     ${companySettingsHtml}
     ${usersHtml}
     ${departmentsHtml}
@@ -2299,13 +2313,77 @@ async function startApp() {
   state.maintenanceSchedule = Auth.getCurrentDepartment() ? await Store.getMaintenanceSchedule(Auth.getCurrentDepartment()) : { department: "", tasks: [] };
 
   render();
+  startPresence();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 }
 
+// ---------------- Presence (誰在線上) ----------------
+
+let presenceTimers = [];
+
+function stopPresence() {
+  presenceTimers.forEach(clearInterval);
+  presenceTimers = [];
+  state.onlineUsers = [];
+}
+
+// 每 45 秒回報一次「我還在線上」；管理員另外每 30 秒更新一次線上名單。
+function startPresence() {
+  stopPresence();
+  const beat = () => { if (Auth.isLoggedIn()) Store.presenceHeartbeat(Auth.getCurrentDepartment()).catch(() => {}); };
+  beat();
+  presenceTimers.push(setInterval(beat, 45000));
+  if (Auth.isAdmin()) {
+    refreshOnlineUsers();
+    presenceTimers.push(setInterval(refreshOnlineUsers, 30000));
+  }
+}
+
+async function refreshOnlineUsers() {
+  if (!Auth.isLoggedIn() || !Auth.isAdmin()) return;
+  try {
+    state.onlineUsers = await Store.getOnlineUsers();
+  } catch (e) {
+    return;
+  }
+  updateOnlineUsersUi();
+}
+
+// 只更新線上名單那一塊，不重畫整個設定頁，避免蓋掉正在輸入的欄位。
+function updateOnlineUsersUi() {
+  const list = document.getElementById("online-users-list");
+  const count = document.getElementById("online-users-count");
+  const tile = document.getElementById("online-users-tile");
+  if (tile) tile.textContent = state.onlineUsers.length;
+  if (count) count.textContent = `${state.onlineUsers.length} 人`;
+  if (list) list.innerHTML = renderOnlineUsersRows();
+}
+
+function renderOnlineUsersRows() {
+  if (!state.onlineUsers.length) return `<p class="cat-empty">目前沒有人在線上</p>`;
+  return state.onlineUsers.map((u) => {
+    const secs = Math.max(0, Math.round((Date.now() - new Date(u.lastSeenAt).getTime()) / 1000));
+    const ago = secs < 60 ? "剛剛" : `${Math.floor(secs / 60)} 分鐘前`;
+    const meta = [u.role === "Admin" ? "系統管理員" : "", u.department].filter(Boolean).join(" · ");
+    return `
+    <div class="online-user-row">
+      <span class="online-dot"></span>
+      <div class="online-user-info">
+        <div class="online-user-name">${escapeHtml(u.displayName || u.username)}${u.isSelf ? `<span class="online-user-self">（你）</span>` : ""}</div>
+        ${meta ? `<div class="online-user-meta">${escapeHtml(meta)}</div>` : ""}
+      </div>
+      <span class="online-user-ago">${ago}</span>
+    </div>`;
+  }).join("");
+}
+
 function handleLogout() {
+  // 先通知伺服器「我下線了」（需要還帶著 token，所以要在 Auth.logout() 之前），失敗也沒關係。
+  Store.presenceSignOff().catch(() => {});
+  stopPresence();
   Auth.logout();
   state.settings = null;
   state.journals = [];
@@ -2443,7 +2521,10 @@ function wireLoginEvents() {
     }
   });
 
-  window.addEventListener("wj:unauthorized", () => showLogin("登入已過期，請重新登入"));
+  window.addEventListener("wj:unauthorized", () => {
+    stopPresence();
+    showLogin("登入已過期，請重新登入");
+  });
 }
 
 // ---------------- Init ----------------

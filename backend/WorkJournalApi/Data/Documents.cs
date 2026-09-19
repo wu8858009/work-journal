@@ -105,3 +105,15 @@ public class CounterDocument
     public string Id { get; set; } = "";
     public int Seq { get; set; }
 }
+
+// One row per account, keyed by username, refreshed by a periodic client heartbeat.
+// Lives in the shared database so the desktop app and the web deployment see each other.
+public class PresenceDocument
+{
+    [BsonId]
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Role { get; set; } = "";
+    public string Department { get; set; } = "";
+    public DateTime LastSeenAt { get; set; }
+}
