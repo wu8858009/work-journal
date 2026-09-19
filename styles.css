@@ -233,6 +233,17 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .header-sub { font-size: 19px; font-weight: 700; letter-spacing: 0.2px; }
 
 .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.header-user { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; margin-right: 12px; padding: 6px 12px 6px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14); }
+.header-user svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
+.header-user-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.header-user-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.header-user-sub { font-size: 11px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.header-user-sub:empty { display: none; }
+@media (max-width: 520px) {
+  .header-user { padding: 5px 9px 5px 8px; margin-right: 8px; }
+  .header-user-name { max-width: 84px; }
+  .header-user-sub { display: none; }
+}
 .header-action svg { width: 20px; height: 20px; }
 .header-action { color: #fff; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.12); }
 .header-action:hover { background: rgba(255,255,255,0.18); }

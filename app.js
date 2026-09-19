@@ -290,6 +290,21 @@ async function persistCurrent() {
 
 // ---------------- Render ----------------
 
+// 標題列顯示「目前是誰登入」：顯示名稱 + 角色/目前餐廳，讓多人共用裝置時一眼看得出來。
+function renderHeaderUser() {
+  const box = document.getElementById("header-user");
+  const user = Auth.getUser();
+  if (!user) {
+    box.classList.add("hidden");
+    return;
+  }
+  const dept = Auth.getCurrentDepartment();
+  const role = user.role === "Admin" ? "系統管理員" : "";
+  document.getElementById("header-user-name").textContent = user.displayName || user.username;
+  document.getElementById("header-user-sub").textContent = [role, dept].filter(Boolean).join(" · ");
+  box.classList.remove("hidden");
+}
+
 function render() {
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
   const root = document.getElementById("view-root");
@@ -298,6 +313,7 @@ function render() {
   exportBtn.classList.toggle("hidden", state.view !== "editor" && state.view !== "timers" && state.view !== "maintenance");
   document.getElementById("fab-add-item").classList.toggle("hidden", state.view !== "editor" || !canEditJournal(getCurrentJournal()));
   document.getElementById("header-title").textContent = state.settings.companyName;
+  renderHeaderUser();
 
   if (state.view === "editor") {
     headerSub.textContent = "工作週誌";

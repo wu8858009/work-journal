@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="./icon.svg" />
-<link rel="stylesheet" href="./styles.css?v=20260916d" />
+<link rel="stylesheet" href="./styles.css?v=20260919c" />
 <script>
   (function () {
     try {
@@ -87,6 +87,10 @@
       <div class="header-titles">
         <div class="header-title" id="header-title">工作週誌</div>
         <div class="header-sub" id="header-sub">工作週誌</div>
+      </div>
+      <div class="header-user hidden" id="header-user" title="目前登入帳號">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0" stroke-linecap="round"/></svg>
+        <span class="header-user-text"><span class="header-user-name" id="header-user-name"></span><span class="header-user-sub" id="header-user-sub"></span></span>
       </div>
       <div class="header-actions">
         <button class="icon-btn header-action" id="theme-toggle-app" title="切換深色模式">
@@ -462,6 +466,6 @@
   <div id="print-area" class="print-area"></div>
 
   <script src="./data.js?v=20260919b"></script>
-  <script src="./app.js?v=20260919b"></script>
+  <script src="./app.js?v=20260919c"></script>
 </body>
 </html>
