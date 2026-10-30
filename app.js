@@ -1933,6 +1933,116 @@ window.addEventListener("afterprint", () => {
   area.style.overflow = "";
 });
 
+// iPhone「加入主畫面」的 App（standalone 模式）裡，iOS 會直接忽略 window.print()——按匯出
+// 完全沒反應。這種情況改成自己把 #print-area 截圖做成 PDF，再用 iOS 的分享選單讓使用者
+// 存到「檔案」或傳 LINE。navigator.standalone 只有 iOS 有，且只在主畫面 App 裡才是 true。
+function isIosStandalone() {
+  return window.navigator.standalone === true;
+}
+
+const PDF_LIBS = [
+  "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+];
+const loadedScripts = {};
+
+function loadScriptOnce(src) {
+  if (!loadedScripts[src]) {
+    loadedScripts[src] = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => { delete loadedScripts[src]; reject(new Error("無法載入 " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  return loadedScripts[src];
+}
+
+// 把目前 #print-area 的內容做成一頁 A4 PDF（方向依 printIsLandscape）。#print-area 平常是
+// display:none，截圖時暫時移到畫面外顯示，並拿掉 fitPrintSheetToOnePage() 的縮放——
+// 縮放改由下面放進 PDF 頁面時等比例處理。
+async function buildPdfFile(fileName) {
+  await Promise.all(PDF_LIBS.map(loadScriptOnce));
+  const area = document.getElementById("print-area");
+  const sheet = area.querySelector(".print-sheet");
+  const restoreArea = area.getAttribute("style") || "";
+  const restoreSheet = sheet.getAttribute("style") || "";
+  area.setAttribute("style", "display:block;position:fixed;left:-10000px;top:0;");
+  sheet.style.transform = "none";
+  try {
+    const canvas = await window.html2canvas(sheet, { scale: 2, backgroundColor: "#ffffff" });
+    const pdf = new window.jspdf.jsPDF({ orientation: printIsLandscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const marginMm = 5;
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const ratio = Math.min((pageW - marginMm * 2) / canvas.width, (pageH - marginMm * 2) / canvas.height);
+    const w = canvas.width * ratio;
+    const h = canvas.height * ratio;
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", (pageW - w) / 2, marginMm, w, h);
+    return new File([pdf.output("blob")], fileName, { type: "application/pdf" });
+  } finally {
+    area.setAttribute("style", restoreArea);
+    sheet.setAttribute("style", restoreSheet);
+  }
+}
+
+// 回傳 false 代表 iOS 不讓這次直接開分享選單（離使用者點按鈕太久），需要使用者再點一次。
+async function sharePdfFile(file) {
+  try {
+    await navigator.share({ files: [file] });
+  } catch (err) {
+    if (err.name === "NotAllowedError") return false;
+    if (err.name !== "AbortError") throw err; // AbortError = 使用者自己關掉分享選單
+  }
+  return true;
+}
+
+let pendingPdfFile = null;
+
+async function exportPdfForIos(fileName) {
+  const exportBtn = document.getElementById("export-btn");
+  exportBtn.disabled = true;
+  let file;
+  try {
+    file = await buildPdfFile(fileName);
+  } catch (err) {
+    alert("PDF 產生失敗，請確認網路連線後再試一次");
+    return;
+  } finally {
+    exportBtn.disabled = false;
+  }
+
+  if (!navigator.canShare || !navigator.canShare({ files: [file] })) {
+    window.open(URL.createObjectURL(file), "_blank");
+    return;
+  }
+  try {
+    if (await sharePdfFile(file)) return;
+  } catch (err) {
+    alert("分享 PDF 失敗：" + err.message);
+    return;
+  }
+  // 產生 PDF 需要一點時間，iOS 會認為已經不是「使用者剛點的」而拒絕開分享選單，
+  // 所以改跳一個視窗，讓使用者再點一次「儲存／分享」。
+  pendingPdfFile = file;
+  const modal = document.getElementById("modal-pdf-share");
+  modal.querySelector("#pdf-share-name").textContent = file.name;
+  showModal(modal);
+}
+
+// 列印對話框跟 PDF 檔都會用到這份 #print-area，呼叫前要先把內容放進去並 fitPrintSheetToOnePage()。
+function printOrExportPdf(fileName) {
+  if (isIosStandalone()) {
+    exportPdfForIos(fileName);
+    return;
+  }
+  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
+  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
+  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
+  setTimeout(() => window.print(), 50);
+}
+
 function handleExport() {
   const j = getCurrentJournal();
   if (!j) return;
@@ -1940,10 +2050,7 @@ function handleExport() {
   const container = document.getElementById("print-area");
   container.innerHTML = buildPrintHtml(j);
   fitPrintSheetToOnePage();
-  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
-  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
-  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
-  setTimeout(() => window.print(), 50);
+  printOrExportPdf(`工作週誌_${j.department}_${j.periodStart}.pdf`);
 }
 
 function buildTimerPrintHtml() {
@@ -1995,10 +2102,7 @@ function handleExportTimers() {
   const container = document.getElementById("print-area");
   container.innerHTML = buildTimerPrintHtml();
   fitPrintSheetToOnePage();
-  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
-  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
-  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
-  setTimeout(() => window.print(), 50);
+  printOrExportPdf(`${Auth.getCurrentDepartment()}燈光定時器.pdf`);
 }
 
 function buildMaintenancePrintHtml() {
@@ -2041,10 +2145,7 @@ function handleExportMaintenance() {
   const container = document.getElementById("print-area");
   container.innerHTML = buildMaintenancePrintHtml();
   fitPrintSheetToOnePage();
-  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
-  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
-  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
-  setTimeout(() => window.print(), 50);
+  printOrExportPdf(`${Auth.getCurrentDepartment()}保養排程.pdf`);
 }
 
 // ---------------- Event wiring ----------------
@@ -2065,6 +2166,19 @@ function wireEvents() {
     else if (state.view === "maintenance") handleExportMaintenance();
     else handleExport();
   });
+  const pdfShareModal = document.getElementById("modal-pdf-share");
+  const closePdfShareModal = () => { pendingPdfFile = null; closeModal(pdfShareModal); };
+  document.getElementById("pdf-share-btn").addEventListener("click", async () => {
+    if (!pendingPdfFile) return;
+    try {
+      await sharePdfFile(pendingPdfFile);
+    } catch (err) {
+      alert("分享 PDF 失敗：" + err.message);
+    }
+    closePdfShareModal();
+  });
+  document.getElementById("pdf-share-cancel-btn").addEventListener("click", closePdfShareModal);
+  document.getElementById("pdf-share-cancel-footer-btn").addEventListener("click", closePdfShareModal);
   document.getElementById("fab-add-item").addEventListener("click", () => openItemModal(null, null));
   document.getElementById("theme-toggle-app").addEventListener("click", () => Theme.toggle());
 

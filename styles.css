@@ -1104,45 +1104,48 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
      假設這兩份匯出是橫向去計算可用寬度，跟使用者實際上多半會手動選的方向一致。 */
   @page wide-page { size: A4 landscape; margin: 5mm; }
   .print-sheet-wide { page: wide-page; }
-
-  .print-sheet { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; color: #111; }
-  .p-company { text-align: center; font-size: 20px; margin: 0 0 4px; }
-  .p-title { text-align: center; font-size: 16px; margin: 0 0 16px; font-weight: 600; }
-  .p-info { font-size: 13px; margin-bottom: 4px; }
-  .p-info-row { display: flex; justify-content: space-between; }
-  .p-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-  .p-table th, .p-table td { border: 1px solid #333; padding: 6px 8px; vertical-align: top; }
-  .p-table th { background: #eef2f6; font-weight: 700; }
-  .p-table .p-idx { width: 5%; text-align: center; }
-  .p-table .p-item { width: 19%; }
-  .p-table .p-assignee { width: 10%; text-align: center; }
-  .p-table .p-progress { width: 32%; }
-  .p-table .p-date { width: 16%; text-align: center; }
-  .p-table .p-pct { width: 10%; text-align: center; }
-  .p-section td { background: #dfe8ef; font-weight: 700; }
-  .p-empty { text-align: center; color: #888; }
-
-  .p-signature {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    margin-top: 28px;
-    font-size: 13px;
-  }
-  .p-signature-label { font-weight: 700; margin-right: 6px; }
-  .p-signature-line { display: inline-block; width: 180px; border-bottom: 1px solid #333; height: 1.4em; }
-
-  .pt-table { font-size: 10.5px; }
-  .pt-table th, .pt-table td { text-align: center; padding: 5px 4px; }
-  .pt-table .pt-location { width: 13%; text-align: left; font-weight: 600; }
-  .pt-table .pt-sep { width: 2%; padding: 5px 0; }
-  .pt-table .pt-note { width: 15%; text-align: left; }
-
-  .mnt-print-table { font-size: 9.5px; }
-  .mnt-print-table th, .mnt-print-table td { text-align: center; padding: 4px 3px; }
-  .mnt-print-table .mnt-print-name { text-align: left; width: 16%; }
-  .mnt-print-table .mnt-print-months { text-align: left; width: 12%; }
 }
+
+/* 列印表格的樣式放在 @media print 外面：fitPrintSheetToOnePage() 量高度、以及 iPhone 主畫面
+   App 用 html2canvas 截圖產生 PDF 時，都是在「螢幕」樣式下進行的，樣式必須跟真正列印時一致，
+   量出來的高度和截出來的畫面才會對。這些 class 只出現在平常隱藏的 #print-area 裡，不影響畫面。 */
+.print-sheet { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; color: #111; background: #fff; }
+.p-company { text-align: center; font-size: 20px; margin: 0 0 4px; }
+.p-title { text-align: center; font-size: 16px; margin: 0 0 16px; font-weight: 600; }
+.p-info { font-size: 13px; margin-bottom: 4px; }
+.p-info-row { display: flex; justify-content: space-between; }
+.p-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+.p-table th, .p-table td { border: 1px solid #333; padding: 6px 8px; vertical-align: top; color: #111; }
+.p-table th { background: #eef2f6; font-weight: 700; }
+.p-table .p-idx { width: 5%; text-align: center; }
+.p-table .p-item { width: 19%; }
+.p-table .p-assignee { width: 10%; text-align: center; }
+.p-table .p-progress { width: 32%; }
+.p-table .p-date { width: 16%; text-align: center; }
+.p-table .p-pct { width: 10%; text-align: center; }
+.p-section td { background: #dfe8ef; font-weight: 700; }
+.p-empty { text-align: center; color: #888; }
+
+.p-signature {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 28px;
+  font-size: 13px;
+}
+.p-signature-label { font-weight: 700; margin-right: 6px; }
+.p-signature-line { display: inline-block; width: 180px; border-bottom: 1px solid #333; height: 1.4em; }
+
+.pt-table { font-size: 10.5px; }
+.pt-table th, .pt-table td { text-align: center; padding: 5px 4px; }
+.pt-table .pt-location { width: 13%; text-align: left; font-weight: 600; }
+.pt-table .pt-sep { width: 2%; padding: 5px 0; }
+.pt-table .pt-note { width: 15%; text-align: left; }
+
+.mnt-print-table { font-size: 9.5px; }
+.mnt-print-table th, .mnt-print-table td { text-align: center; padding: 4px 3px; }
+.mnt-print-table .mnt-print-name { text-align: left; width: 16%; }
+.mnt-print-table .mnt-print-months { text-align: left; width: 12%; }
 
 /* ---------- Online users (admin) ---------- */
 .online-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c-success); box-shadow: 0 0 0 3px var(--c-success-bg); flex-shrink: 0; margin-right: 8px; }

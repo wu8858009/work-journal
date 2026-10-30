@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="./icon.svg" />
-<link rel="stylesheet" href="./styles.css?v=20260919d" />
+<link rel="stylesheet" href="./styles.css?v=20261030a" />
 <script>
   (function () {
     try {
@@ -279,6 +279,27 @@
     </div>
   </div>
 
+  <!-- PDF share modal (iPhone home-screen app only) -->
+  <div class="modal-backdrop" id="modal-pdf-share">
+    <div class="modal-sheet modal-sheet-sm">
+      <div class="modal-header">
+        <h3>PDF 已產生</h3>
+        <button class="icon-btn" id="pdf-share-cancel-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="pdf-share-name" style="margin:0;"></p>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-footer-right">
+          <button class="btn btn-ghost" id="pdf-share-cancel-footer-btn">取消</button>
+          <button class="btn btn-primary" id="pdf-share-btn">儲存／分享</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Light timer modal (Admin only) -->
   <div class="modal-backdrop" id="modal-timer">
     <div class="modal-sheet modal-sheet-sm">
@@ -465,7 +486,7 @@
 
   <div id="print-area" class="print-area"></div>
 
-  <script src="./data.js?v=20260919f"></script>
-  <script src="./app.js?v=20260919f"></script>
+  <script src="./data.js?v=20261030a"></script>
+  <script src="./app.js?v=20261030a"></script>
 </body>
 </html>
