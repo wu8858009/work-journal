@@ -835,6 +835,33 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .field-input:disabled { opacity: .65; cursor: not-allowed; }
 .field-textarea { min-height: 80px; resize: vertical; font-family: inherit; }
 
+/* 編輯項目視窗：手機一欄由上往下排；電腦版（寬螢幕）改成兩欄，短欄位並排，
+   進度說明和照片佔滿整列，打開就能看到大部分欄位，不必一直往下捲。 */
+.item-form > .form-field:not(:first-child) { margin-top: 14px; }
+.item-form .form-field .field-label { margin-top: 0; }
+@media (min-width: 900px) {
+  .item-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "category name"
+      "assignee date"
+      "progress progress"
+      "percent  priority"
+      "photos   photos";
+    gap: 14px 18px;
+  }
+  .item-form > .form-field:not(:first-child) { margin-top: 0; }
+  .item-area-category { grid-area: category; }
+  .item-area-name { grid-area: name; }
+  .item-area-assignee { grid-area: assignee; }
+  .item-area-date { grid-area: date; }
+  .item-area-progress { grid-area: progress; }
+  .item-area-percent { grid-area: percent; }
+  .item-area-priority { grid-area: priority; align-self: end; border-bottom: none; padding: 0 0 11px; }
+  .item-area-photos { grid-area: photos; }
+}
+
 .field-password-wrap { position: relative; }
 .field-password-wrap .field-input { padding-right: 42px; }
 .field-password-toggle {

@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="./icon.svg" />
-<link rel="stylesheet" href="./styles.css?v=20261030c" />
+<link rel="stylesheet" href="./styles.css?v=20261030d" />
 <script>
   (function () {
     try {
@@ -100,6 +100,9 @@
         <button class="icon-btn header-action hidden" id="share-btn" title="分享 PDF（LINE 等）">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15V3M8 7l4-4 4 4M7 10H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+        <button class="icon-btn header-action hidden" id="download-btn" title="下載 PDF">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12M7 10l5 5 5-5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-btn header-action hidden" id="export-btn" title="匯出 / 列印">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke-linejoin="round"/></svg>
         </button>
@@ -138,29 +141,40 @@
 
   <!-- Item modal -->
   <div class="modal-backdrop" id="modal-item">
-    <div class="modal-sheet">
+    <div class="modal-sheet modal-sheet-lg">
       <div class="modal-header">
         <h3 id="item-modal-title">新增項目</h3>
         <button class="icon-btn" id="item-cancel-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"/></svg>
         </button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body item-form">
+        <div class="form-field item-area-category">
         <label class="field-label" id="item-field-category-label">類別</label>
         <select id="item-field-category" class="field-input field-select"></select>
+        </div>
 
+        <div class="form-field item-area-name">
         <label class="field-label">工作項目</label>
         <input type="text" id="item-field-name" class="field-input" placeholder="例如：碧水堂洗區水龍頭高壓軟管破管" />
+        </div>
 
+        <div class="form-field item-area-assignee">
         <label class="field-label">負責人</label>
         <input type="text" id="item-field-assignee" class="field-input" placeholder="例如：志豪哥" />
+        </div>
 
+        <div class="form-field item-area-progress">
         <label class="field-label">目前進度說明</label>
         <textarea id="item-field-progress" class="field-input field-textarea" placeholder="例如：已聯絡廠商報價中"></textarea>
+        </div>
 
+        <div class="form-field item-area-date">
         <label class="field-label">預計完成日期</label>
         <input type="date" id="item-field-date" class="field-input" />
+        </div>
 
+        <div class="form-field item-area-percent">
         <label class="field-label">完成度</label>
         <select id="item-field-percent" class="field-input field-select">
           <option value="0">0%</option>
@@ -175,12 +189,14 @@
           <option value="90">90%</option>
           <option value="100">100%</option>
         </select>
+        </div>
 
-        <label class="checkbox-row">
+        <label class="checkbox-row item-area-priority">
           <input type="checkbox" id="item-field-priority" />
           <span>需優先處理</span>
         </label>
 
+        <div class="form-field item-area-photos">
         <label class="field-label">照片</label>
         <div class="photo-grid" id="item-field-photos"></div>
         <div class="photo-add-row">
@@ -194,6 +210,7 @@
           </button>
           <input type="file" id="item-photo-camera-input" accept="image/*" capture="environment" class="hidden" />
           <input type="file" id="item-photo-gallery-input" accept="image/*" multiple class="hidden" />
+        </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -489,7 +506,7 @@
 
   <div id="print-area" class="print-area"></div>
 
-  <script src="./data.js?v=20261030c"></script>
-  <script src="./app.js?v=20261030c"></script>
+  <script src="./data.js?v=20261030d"></script>
+  <script src="./app.js?v=20261030d"></script>
 </body>
 </html>

@@ -312,7 +312,9 @@ function render() {
   const headerSub = document.getElementById("header-sub");
   const printable = state.view === "editor" || state.view === "timers" || state.view === "maintenance";
   document.getElementById("export-btn").classList.toggle("hidden", !printable || isIosStandalone());
-  document.getElementById("share-btn").classList.toggle("hidden", !printable || !(canSharePdfFiles || isIosStandalone()));
+  const canShare = canSharePdfFiles || isIosStandalone();
+  document.getElementById("share-btn").classList.toggle("hidden", !printable || !canShare);
+  document.getElementById("download-btn").classList.toggle("hidden", !printable || canShare);
   document.getElementById("fab-add-item").classList.toggle("hidden", state.view !== "editor" || !canEditJournal(getCurrentJournal()));
   document.getElementById("header-title").textContent = state.settings.companyName;
   renderHeaderUser();
@@ -2019,6 +2021,29 @@ async function sharePdfFile(file) {
 
 let pendingPdfFile = null;
 
+// 電腦版沒有系統分享選單可以用，改成直接下載 PDF 檔，再自己拖進電腦版 LINE 或寄出去。
+async function exportPdfAndDownload(fileName) {
+  const downloadBtn = document.getElementById("download-btn");
+  downloadBtn.disabled = true;
+  let file;
+  try {
+    file = await buildPdfFile(fileName);
+  } catch (err) {
+    alert("PDF 產生失敗，請確認網路連線後再試一次");
+    return;
+  } finally {
+    downloadBtn.disabled = false;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 async function exportPdfAndShare(fileName) {
   const shareBtn = document.getElementById("share-btn");
   shareBtn.disabled = true;
@@ -2186,6 +2211,10 @@ function wireEvents() {
   document.getElementById("share-btn").addEventListener("click", () => {
     const fileName = preparePrintArea();
     if (fileName) exportPdfAndShare(fileName);
+  });
+  document.getElementById("download-btn").addEventListener("click", () => {
+    const fileName = preparePrintArea();
+    if (fileName) exportPdfAndDownload(fileName);
   });
   const pdfShareModal = document.getElementById("modal-pdf-share");
   const closePdfShareModal = () => { pendingPdfFile = null; closeModal(pdfShareModal); };
