@@ -9,6 +9,18 @@ public class JournalDto
     public List<CategoryDto> Categories { get; set; } = new();
     public string? CreatedAt { get; set; }
     public string? UpdatedAt { get; set; }
+    // 每次儲存 +1，多台裝置同時編輯時用來判斷資料是不是已經被別人改過。
+    public long Version { get; set; }
+    // 儲存時帶上「我是根據哪一版改的」；跟資料庫目前版本不同就回 409 + 最新資料，
+    // 由前端合併後再存。沒帶（舊版前端）就照舊直接覆蓋。
+    public long? BaseVersion { get; set; }
+}
+
+public class JournalVersionDto
+{
+    public string Id { get; set; } = "";
+    public string Department { get; set; } = "";
+    public long Version { get; set; }
 }
 
 public class CategoryDto

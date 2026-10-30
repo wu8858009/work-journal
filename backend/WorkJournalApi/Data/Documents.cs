@@ -47,6 +47,8 @@ public class JournalDocument
     public List<CategoryDto> Categories { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // 舊資料沒有這個欄位，讀出來是 0。
+    public long Version { get; set; }
 }
 
 public class AppSettingsDocument

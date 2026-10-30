@@ -231,8 +231,11 @@ async function apiFetch(path, options = {}) {
     throw new Error("登入已過期，請重新登入");
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `請求失敗 (${res.status})`);
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(body.message || `請求失敗 (${res.status})`);
+    err.status = res.status;
+    err.body = body; // 409 衝突時裡面有 current（伺服器上最新的資料）
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();
@@ -248,10 +251,16 @@ const Store = {
     return apiFetch(`/journals/${id}`);
   },
 
-  async saveJournal(journal) {
+  // 每份週誌的 { id, department, version }，自動同步時用來找出哪幾份被別的裝置改過。
+  async getJournalVersions() {
+    return apiFetch("/journals/versions");
+  },
+
+  // baseVersion：這次修改是根據哪一版；伺服器上已經是別的版本時會回 409（err.body.current = 最新資料）。
+  async saveJournal(journal, baseVersion) {
     return apiFetch(`/journals/${journal.id}`, {
       method: "PUT",
-      body: JSON.stringify(journal),
+      body: JSON.stringify({ ...journal, baseVersion }),
     });
   },
 

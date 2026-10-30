@@ -34,6 +34,18 @@ public class JournalsController : ControllerBase
         return Ok(list);
     }
 
+    // 自動同步用：只回傳每份週誌的 Id 和版本號（不含項目和照片），前端每隔幾秒查一次，
+    // 只有版本變了的週誌才另外抓完整內容。
+    [HttpGet("versions")]
+    public async Task<IActionResult> GetVersions()
+    {
+        var access = await _access.GetAccessAsync(User);
+        var docs = await _db.Journals.Find(FilterDefinition<JournalDocument>.Empty)
+            .Project(j => new JournalVersionDto { Id = j.Id, Department = j.Department, Version = j.Version })
+            .ToListAsync();
+        return Ok(docs.Where(d => access is null || access.ContainsKey(d.Department)));
+    }
+
     [HttpGet("{id}")]
     public async Task<IActionResult> Get(string id)
     {
@@ -78,11 +90,57 @@ public class JournalsController : ControllerBase
             .Set(j => j.PeriodEnd, dto.PeriodEnd)
             .Set(j => j.Categories, dto.Categories)
             .Set(j => j.UpdatedAt, now)
+            .Inc(j => j.Version, 1)
             .SetOnInsert(j => j.CreatedAt, now);
-        await _db.Journals.UpdateOneAsync(j => j.Id == normalizedId, update, new UpdateOptions { IsUpsert = true });
+        var byId = Builders<JournalDocument>.Filter.Eq(j => j.Id, normalizedId);
 
-        dto.Id = normalizedId;
-        return Ok(dto);
+        if (dto.BaseVersion is null)
+        {
+            // 舊版前端（還沒更新到有自動同步的版本）：維持原本「直接覆蓋」的行為。
+            await _db.Journals.UpdateOneAsync(byId, update, new UpdateOptions { IsUpsert = true });
+        }
+        else
+        {
+            // 只有資料庫裡還是「我改之前那一版」才寫入；舊資料沒有 Version 欄位，視為第 0 版。
+            var baseVersion = dto.BaseVersion.Value;
+            var versionMatches = baseVersion == 0
+                ? Builders<JournalDocument>.Filter.Or(
+                    Builders<JournalDocument>.Filter.Eq(j => j.Version, 0),
+                    Builders<JournalDocument>.Filter.Exists(j => j.Version, false))
+                : Builders<JournalDocument>.Filter.Eq(j => j.Version, baseVersion);
+            var result = await _db.Journals.UpdateOneAsync(byId & versionMatches, update);
+
+            if (result.MatchedCount == 0)
+            {
+                var current = await _db.Journals.Find(byId).FirstOrDefaultAsync();
+                if (current is not null)
+                    return Conflict(new { message = "這份週誌剛被其他裝置修改過", current = MapDoc(current) });
+
+                // 全新的週誌（前端自己產生 Id）：直接新增；萬一同時有人也新增了同一份，視為衝突。
+                try
+                {
+                    await _db.Journals.InsertOneAsync(new JournalDocument
+                    {
+                        Id = normalizedId,
+                        Department = department,
+                        PeriodStart = dto.PeriodStart,
+                        PeriodEnd = dto.PeriodEnd,
+                        Categories = dto.Categories,
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                        Version = 1,
+                    });
+                }
+                catch (MongoWriteException ex) when (ex.IsDuplicateKey())
+                {
+                    var raced = await _db.Journals.Find(byId).FirstAsync();
+                    return Conflict(new { message = "這份週誌剛被其他裝置修改過", current = MapDoc(raced) });
+                }
+            }
+        }
+
+        var saved = await _db.Journals.Find(byId).FirstAsync();
+        return Ok(MapDoc(saved));
     }
 
     [HttpDelete("{id}")]
@@ -112,5 +170,6 @@ public class JournalsController : ControllerBase
         Categories = doc.Categories,
         CreatedAt = doc.CreatedAt.ToUtcIsoString(),
         UpdatedAt = doc.UpdatedAt.ToUtcIsoString(),
+        Version = doc.Version,
     };
 }

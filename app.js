@@ -290,7 +290,7 @@ function percentClass(p) {
 async function persistCurrent() {
   const j = getCurrentJournal();
   if (!j) return;
-  await Store.saveJournal(j);
+  await saveJournal(j);
 }
 
 // ---------------- Render ----------------
@@ -1755,7 +1755,7 @@ async function handleNewJournal() {
   const j = buildNewJournal();
   state.journals.unshift(j);
   state.currentId = j.id;
-  await Store.saveJournal(j);
+  await saveJournal(j);
   state.view = "editor";
   render();
 }
@@ -1788,7 +1788,7 @@ async function handleDuplicateJournal(id) {
   });
   state.journals.unshift(j);
   state.currentId = j.id;
-  await Store.saveJournal(j);
+  await saveJournal(j);
   state.view = "editor";
   render();
 }
@@ -1798,6 +1798,7 @@ async function handleDeleteJournal(id) {
   if (!canEditJournal(target)) return;
   if (!confirm("確定要刪除這份週誌嗎？此動作無法復原。")) return;
   await Store.deleteJournal(id);
+  journalBases.delete(id);
   state.journals = state.journals.filter((j) => j.id !== id);
   if (state.currentId === id) {
     state.currentId = state.journals[0] ? state.journals[0].id : null;
@@ -1841,7 +1842,7 @@ async function handleSettingChange(field, value) {
 // 切換「目前餐廳」：重新從資料庫讀取週誌，並把畫面上的卡片切到對應這間餐廳的資料。
 async function handleSwitchDepartment(name) {
   Auth.setCurrentDepartment(name);
-  state.journals = await Store.getAllJournals();
+  setJournals(await Store.getAllJournals());
   const match = state.journals.find((j) => j.department === name);
   state.currentId = match ? match.id : null;
   state.lightTimer = name ? await Store.getLightTimer(name) : { department: "", rows: [] };
@@ -2801,7 +2802,7 @@ async function startApp() {
   document.getElementById("app").classList.remove("hidden");
 
   state.settings = await Store.getSettings();
-  state.journals = await Store.getAllJournals();
+  setJournals(await Store.getAllJournals());
   if (Auth.isAdmin()) {
     state.users = await Store.getUsers();
     state.passwordResetRequests = await Store.getPasswordResetRequests();
@@ -2819,7 +2820,7 @@ async function startApp() {
   if (!hasJournalForTarget && canCreateNewJournal()) {
     const j = buildNewJournal();
     state.journals.push(j);
-    await Store.saveJournal(j);
+    await saveJournal(j);
   }
   const currentDeptJournal = state.journals.find((j) => j.department === Auth.getCurrentDepartment());
   state.currentId = currentDeptJournal ? currentDeptJournal.id : (state.journals.length ? state.journals[0].id : null);
@@ -2832,6 +2833,184 @@ async function startApp() {
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
+  }
+}
+
+// ---------------- Sync (多台裝置同步) ----------------
+//
+// 手機、電腦、其他同事可能同時開著同一份週誌。做法：
+// 1. 每份週誌記住「最後一次跟伺服器同步時的樣子」（journalBases，含版本號 version）。
+// 2. 存檔時告訴伺服器「我是根據哪一版改的」；伺服器發現已經被別人改過會回 409 + 最新資料，
+//    這時用 mergeJournal() 把「我改的」疊到「最新的」上面再存——不同項目的修改兩邊都保留，
+//    同一個項目兩邊都改了，以這台裝置剛存的為準。
+// 3. 每 15 秒（以及切回 App、網路恢復時）問伺服器各週誌的版本號，有變的才抓完整內容更新畫面。
+
+const journalBases = new Map();
+const SYNC_INTERVAL_MS = 15000;
+let savingCount = 0;
+let syncBusy = false;
+let syncRenderPending = false;
+const saveChains = new Map();
+
+function cloneJson(o) {
+  return JSON.parse(JSON.stringify(o));
+}
+
+function rememberBase(j) {
+  journalBases.set(j.id, cloneJson(j));
+}
+
+function setJournals(list) {
+  state.journals = list;
+  journalBases.clear();
+  list.forEach(rememberBase);
+}
+
+// 換掉物件內容但保留同一個參考，畫面上其他地方拿著的 j 也會跟著是最新的。
+function replaceContents(target, src) {
+  Object.keys(target).forEach((k) => delete target[k]);
+  Object.assign(target, cloneJson(src));
+}
+
+// 三方合併：base = 我上次同步到的版本、local = 我現在的、server = 伺服器上最新的。
+function mergeJournal(base, local, server) {
+  if (!base) return cloneJson(local);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const result = cloneJson(server);
+  for (const f of ["department", "periodStart", "periodEnd"]) {
+    if (local[f] !== base[f]) result[f] = local[f];
+  }
+
+  const catFields = (c) => ({ name: c.name, isCompletedSection: !!c.isCompletedSection });
+  const byId = (j) => new Map(j.categories.map((c) => [c.id, c]));
+  const baseCats = byId(base), localCats = byId(local), serverCats = byId(server);
+  const catIds = server.categories.map((c) => c.id);
+  local.categories.forEach((c) => { if (!baseCats.has(c.id) && !serverCats.has(c.id)) catIds.push(c.id); });
+  const finalCats = [];
+  for (const id of catIds) {
+    const b = baseCats.get(id), l = localCats.get(id), s = serverCats.get(id);
+    if (b && !l) continue; // 這台裝置刪掉了
+    const localChanged = l && (!b || !same(catFields(l), catFields(b)));
+    if (b && !s && !localChanged) continue; // 別台刪掉了，這台沒動過
+    finalCats.push({ id, ...catFields(localChanged ? l : (s || l)), items: [] });
+  }
+
+  const itemIndex = (j) => {
+    const m = new Map();
+    j.categories.forEach((c) => c.items.forEach((it, i) => m.set(it.id, { catId: c.id, it, i })));
+    return m;
+  };
+  const B = itemIndex(base), L = itemIndex(local), S = itemIndex(server);
+  const placed = [];
+  for (const id of new Set([...S.keys(), ...L.keys()])) {
+    const b = B.get(id), l = L.get(id), s = S.get(id);
+    if (b && !l) continue;
+    const localChanged = l && (!b || b.catId !== l.catId || !same(b.it, l.it));
+    if (b && !s && !localChanged) continue;
+    const pick = localChanged ? l : (s || l);
+    placed.push({ ...pick, order: pick.i + (pick === l && !s ? 0.5 : 0) });
+  }
+  const catMap = new Map(finalCats.map((c) => [c.id, c]));
+  placed.sort((a, b) => a.order - b.order).forEach((p) => {
+    const cat = catMap.get(p.catId) || finalCats.find((c) => !c.isCompletedSection) || finalCats[0];
+    if (cat) cat.items.push(cloneJson(p.it));
+  });
+  result.categories = finalCats;
+  return result;
+}
+
+// 存檔一律走這裡（不要直接呼叫 Store.saveJournal）。同一份週誌的存檔排隊依序送出，
+// 避免前一次還沒回來、下一次就帶著舊版本號送出去。
+function saveJournal(j) {
+  const id = j.id;
+  const next = (saveChains.get(id) || Promise.resolve()).catch(() => {}).then(() => saveJournalNow(id));
+  saveChains.set(id, next);
+  return next;
+}
+
+async function saveJournalNow(id) {
+  savingCount++;
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const local = state.journals.find((x) => x.id === id);
+      if (!local) return;
+      const base = journalBases.get(id);
+      try {
+        const saved = await Store.saveJournal(local, base ? base.version || 0 : 0);
+        local.version = saved.version;
+        rememberBase(saved);
+        return;
+      } catch (err) {
+        if (err.status !== 409 || !err.body || !err.body.current) throw err;
+        const server = err.body.current;
+        replaceContents(local, mergeJournal(base, local, server));
+        local.version = server.version;
+        rememberBase(server);
+        syncRenderPending = true; // 合併進來的別人的修改，存完後要顯示出來
+      }
+    }
+    throw new Error("這份週誌一直被其他裝置修改，請稍後再試一次");
+  } finally {
+    savingCount--;
+    if (syncRenderPending && savingCount === 0) renderAfterSync();
+  }
+}
+
+// 使用者正在畫面上的欄位打字（例如期間日期）時先不要重畫，離開欄位後再更新。
+function renderAfterSync() {
+  const active = document.activeElement;
+  const root = document.getElementById("view-root");
+  if (active && root.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) {
+    syncRenderPending = true;
+    active.addEventListener("blur", () => setTimeout(renderAfterSync, 0), { once: true });
+    return;
+  }
+  syncRenderPending = false;
+  if (!document.getElementById("app").classList.contains("hidden")) render();
+}
+
+async function syncFromServer() {
+  if (syncBusy || savingCount > 0 || !Auth.isLoggedIn() || document.hidden) return;
+  syncBusy = true;
+  try {
+    const versions = await Store.getJournalVersions();
+    const remote = new Map(versions.map((v) => [v.id, v]));
+    let changed = false;
+
+    // 別台裝置刪掉的週誌（還沒存上去過的新週誌沒有 base，不算）
+    const kept = state.journals.filter((j) => remote.has(j.id) || !journalBases.has(j.id));
+    if (kept.length !== state.journals.length) {
+      state.journals.filter((j) => !kept.includes(j)).forEach((j) => journalBases.delete(j.id));
+      state.journals = kept;
+      changed = true;
+    }
+
+    for (const v of versions) {
+      const base = journalBases.get(v.id);
+      if (base && (base.version || 0) === v.version) continue;
+      if (savingCount > 0) break; // 這台正在存檔，下一輪再同步
+      const fresh = await Store.getJournal(v.id);
+      if (savingCount > 0) break;
+      const existing = state.journals.find((j) => j.id === v.id);
+      if (existing) replaceContents(existing, fresh);
+      else state.journals.push(fresh);
+      rememberBase(fresh);
+      changed = true;
+    }
+
+    if (changed) {
+      state.journals.sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+      if (!state.journals.some((j) => j.id === state.currentId)) {
+        const dept = Auth.getCurrentDepartment();
+        const fallback = state.journals.find((j) => !dept || j.department === dept);
+        state.currentId = fallback ? fallback.id : null;
+      }
+      renderAfterSync();
+    }
+  } catch {
+    // 沒網路或伺服器在睡覺：下一輪再試
+  } finally {
+    syncBusy = false;
   }
 }
 
@@ -2854,6 +3033,7 @@ function startPresence() {
   const beat = () => { if (Auth.isLoggedIn()) Store.presenceHeartbeat(Auth.getCurrentDepartment()).catch(() => {}); };
   beat();
   presenceTimers.push(setInterval(beat, 10000));
+  presenceTimers.push(setInterval(syncFromServer, SYNC_INTERVAL_MS));
   if (Auth.isAdmin()) {
     refreshOnlineUsers();
     presenceTimers.push(setInterval(refreshOnlineUsers, 5000));
@@ -2866,7 +3046,9 @@ function startPresence() {
     if (document.visibilityState !== "visible" || !Auth.isLoggedIn()) return;
     beat();
     refreshOnlineUsers();
+    syncFromServer();
   });
+  window.addEventListener("online", () => syncFromServer());
   // 關閉分頁/視窗：用 keepalive 讓請求在頁面卸載後仍能送出（一般 fetch 會被中斷）。
   window.addEventListener("pagehide", () => {
     const token = Auth.getToken();
@@ -2919,7 +3101,7 @@ function handleLogout() {
   stopPresence();
   Auth.logout();
   state.settings = null;
-  state.journals = [];
+  setJournals([]);
   state.currentId = null;
   state.users = [];
   state.passwordResetRequests = [];
