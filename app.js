@@ -55,6 +55,10 @@ const state = {
   lightTimer: { department: "", rows: [] },
   maintenanceSchedule: { department: "", tasks: [] },
   maintenanceReminderShown: false,
+  // 總覽頁（管理員）：各餐廳的保養排程要另外抓，null = 還沒載入。
+  overviewMaintenance: null,
+  overviewMaintenanceLoading: false,
+  overviewExport: null,
 };
 
 const AUDIT_ACTION_LABELS = {
@@ -319,7 +323,21 @@ function render() {
   document.getElementById("header-title").textContent = state.settings.companyName;
   renderHeaderUser();
 
-  if (state.view === "editor") {
+  // 「總覽」只有管理員看得到；底部按鈕上的紅色數字是所有餐廳的逾期項目數。
+  const isAdmin = Auth.isAdmin();
+  if (state.view === "overview" && !isAdmin) state.view = "editor";
+  const overviewNav = document.getElementById("nav-overview");
+  overviewNav.classList.toggle("hidden", !isAdmin);
+  const overdueCount = isAdmin ? collectOverdueItems().length : 0;
+  const navBadge = overviewNav.querySelector(".nav-badge");
+  navBadge.textContent = overdueCount > 99 ? "99+" : String(overdueCount);
+  navBadge.classList.toggle("hidden", !overdueCount);
+
+  if (state.view === "overview") {
+    headerSub.textContent = "總覽";
+    root.innerHTML = renderOverview();
+    if (!state.overviewMaintenance) loadOverviewMaintenance();
+  } else if (state.view === "editor") {
     headerSub.textContent = "工作週誌";
     root.innerHTML = renderEditor();
   } else if (state.view === "history") {
@@ -1832,6 +1850,313 @@ async function handleSwitchDepartment(name) {
   render();
 }
 
+// ---------------- Overview (Admin) ----------------
+
+// 每間餐廳「最新一份」週誌。週誌每週會把上週未完成的項目複製過來，所以逾期、負責人
+// 工作量這類「目前狀態」只看最新一份，才不會把同一個項目重複算好幾次。
+function latestJournalByDepartment() {
+  const map = new Map();
+  for (const j of state.journals) {
+    const cur = map.get(j.department);
+    if (!cur || j.periodStart > cur.periodStart) map.set(j.department, j);
+  }
+  return map;
+}
+
+function overviewDepartmentNames() {
+  const names = new Set(state.departments.map((d) => d.name));
+  state.journals.forEach((j) => { if (j.department) names.add(j.department); });
+  return [...names].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+}
+
+// 還沒完成的項目（完成區裡的、或已經 100% 的不算），附上所屬類別。
+function openItemsOf(journal) {
+  return journal.categories
+    .filter((c) => !c.isCompletedSection)
+    .flatMap((c) => c.items.filter((it) => (Number(it.percent) || 0) < 100).map((it) => ({ cat: c, it })));
+}
+
+function daysOverdue(expectedDate) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((today - new Date(expectedDate + "T00:00:00")) / 86400000);
+}
+
+// 所有餐廳最新週誌裡，已經過了預計完成日期、還沒做完的項目，逾期最久的排最前面。
+function collectOverdueItems() {
+  const list = [];
+  for (const j of latestJournalByDepartment().values()) {
+    for (const { cat, it } of openItemsOf(j)) {
+      if (dateUrgency(it.expectedDate, it.percent) === "overdue") list.push({ j, cat, it, days: daysOverdue(it.expectedDate) });
+    }
+  }
+  return list.sort((a, b) => b.days - a.days);
+}
+
+// 一週以週一為代表日期。
+function mondayOf(iso) {
+  return getDefaultWeekRange(new Date(iso + "T00:00:00")).start;
+}
+
+async function loadOverviewMaintenance() {
+  if (state.overviewMaintenanceLoading) return;
+  state.overviewMaintenanceLoading = true;
+  const result = {};
+  await Promise.all(overviewDepartmentNames().map(async (name) => {
+    try {
+      result[name] = (await Store.getMaintenanceSchedule(name)).tasks || [];
+    } catch {
+      result[name] = [];
+    }
+  }));
+  state.overviewMaintenance = result;
+  state.overviewMaintenanceLoading = false;
+  if (state.view === "overview") render();
+}
+
+function overviewMaintenanceThisMonth() {
+  if (!state.overviewMaintenance) return null;
+  const month = new Date().getMonth() + 1;
+  return Object.entries(state.overviewMaintenance)
+    .flatMap(([dept, tasks]) => tasks.filter((t) => (t.activeMonths || []).includes(month)).map((t) => ({ dept, t })))
+    .sort((a, b) => a.dept.localeCompare(b.dept, "zh-Hant"));
+}
+
+function overviewExportOptions() {
+  if (!state.overviewExport) {
+    const now = new Date();
+    state.overviewExport = { from: isoDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: isoDate(now), dept: "" };
+  }
+  return state.overviewExport;
+}
+
+// 水平長條圖（單一數列，不需要圖例；數值直接標在長條旁，滑鼠移上去有提示）。
+function barListHtml(rows, emptyText) {
+  if (!rows.length) return `<p class="settings-note">${emptyText}</p>`;
+  const max = Math.max(...rows.map((r) => r.value), 1);
+  return `<div class="ov-bars">${rows.map((r) => `
+    <div class="ov-bar-row" title="${escapeHtml(r.tip)}">
+      <span class="ov-bar-label">${escapeHtml(r.label)}</span>
+      <span class="ov-bar-track"><span class="ov-bar-fill" style="width:${Math.max((r.value / max) * 100, 2)}%"></span></span>
+      <span class="ov-bar-value">${r.value}${r.extra ? `<span class="ov-bar-extra">${escapeHtml(r.extra)}</span>` : ""}</span>
+    </div>`).join("")}</div>`;
+}
+
+function renderOverview() {
+  const names = overviewDepartmentNames();
+  const latest = latestJournalByDepartment();
+  const thisMonday = getDefaultWeekRange().start;
+  const overdue = collectOverdueItems();
+  const maintenance = overviewMaintenanceThisMonth();
+  const filledThisWeek = names.filter((n) => latest.get(n) && latest.get(n).periodEnd >= thisMonday).length;
+  const openCount = [...latest.values()].reduce((s, j) => s + openItemsOf(j).length, 0);
+
+  const kpis = `
+  <div class="ov-kpis">
+    <div class="ov-kpi"><span class="ov-kpi-label">本週已填週誌</span><span class="ov-kpi-value">${filledThisWeek}<small> / ${names.length}</small></span></div>
+    <div class="ov-kpi ${overdue.length ? "ov-kpi-danger" : ""}"><span class="ov-kpi-label">逾期項目</span><span class="ov-kpi-value">${overdue.length}</span></div>
+    <div class="ov-kpi"><span class="ov-kpi-label">進行中項目</span><span class="ov-kpi-value">${openCount}</span></div>
+    <div class="ov-kpi"><span class="ov-kpi-label">本月保養</span><span class="ov-kpi-value">${maintenance ? maintenance.length : "…"}</span></div>
+  </div>`;
+
+  const deptRows = names.map((name) => {
+    const j = latest.get(name);
+    if (!j) {
+      return `<div class="ov-dept-row ov-dept-empty">
+        <span class="ov-dept-name">${escapeHtml(name)}</span>
+        <span class="badge badge-warning">尚無週誌</span>
+      </div>`;
+    }
+    const pct = journalPercent(j);
+    const items = openItemsOf(j);
+    const od = items.filter(({ it }) => dateUrgency(it.expectedDate, it.percent) === "overdue").length;
+    const pri = items.filter(({ it }) => it.isPriority).length;
+    const filled = j.periodEnd >= thisMonday;
+    return `<div class="ov-dept-row" data-action="ov-open-journal" data-id="${j.id}" title="開啟 ${escapeHtml(name)} 的週誌">
+      <span class="ov-dept-name">${escapeHtml(name)}</span>
+      <span class="badge ${filled ? "badge-success" : "badge-warning"}">${filled ? "本週已填" : "本週未填"}</span>
+      <span class="ov-dept-period">${toROC(j.periodStart)} ～ ${toROC(j.periodEnd)}</span>
+      <span class="ov-dept-progress"><span class="overall-bar"><span class="overall-bar-fill" style="width:${pct}%"></span></span><span class="ov-dept-pct">${pct}%</span></span>
+      <span class="ov-dept-stats">進行中 <b>${items.length}</b> · 逾期 <b class="${od ? "ov-text-danger" : ""}">${od}</b> · 優先 <b>${pri}</b></span>
+    </div>`;
+  }).join("");
+
+  const overdueHtml = overdue.length ? overdue.map(({ j, cat, it, days }) => `
+    <div class="ov-list-row" data-action="ov-open-item" data-id="${j.id}" data-cat="${cat.id}" data-item="${it.id}">
+      <div class="ov-list-main">
+        <div class="ov-list-title">${it.isPriority ? '<span class="badge badge-priority">優先</span>' : ""}${escapeHtml(it.item) || "（未命名項目）"}</div>
+        <div class="ov-list-meta"><span class="badge badge-soft">${escapeHtml(j.department)}</span>${escapeHtml(cat.name)}${it.assignee ? ` · 負責人：${escapeHtml(it.assignee)}` : ""} · 預計 ${toROC(it.expectedDate)}</div>
+      </div>
+      <span class="ov-overdue-days">逾期 ${days} 天</span>
+      <span class="pct-chip ${percentClass(Number(it.percent) || 0)}">${Number(it.percent) || 0}%</span>
+    </div>`).join("") : `<p class="settings-note">目前沒有逾期項目 👍</p>`;
+
+  const maintenanceHtml = !maintenance
+    ? `<p class="settings-note">載入中…</p>`
+    : maintenance.length
+      ? maintenance.map(({ dept, t }) => `
+        <div class="ov-list-row ov-list-row-static">
+          <div class="ov-list-main">
+            <div class="ov-list-title">${escapeHtml(t.name)}</div>
+            <div class="ov-list-meta"><span class="badge badge-soft">${escapeHtml(dept)}</span>${escapeHtml(t.frequencyLabel || "")}${t.monthsText ? ` · ${escapeHtml(t.monthsText)}` : ""}</div>
+          </div>
+        </div>`).join("")
+      : `<p class="settings-note">這個月沒有排定的保養項目</p>`;
+
+  // 完成率走勢：最近 8 週 × 各餐廳的熱度表（同一色系，越深完成度越高；格子裡直接寫數字）。
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const d = new Date(thisMonday + "T00:00:00");
+    d.setDate(d.getDate() - i * 7);
+    weeks.push(isoDate(d));
+  }
+  const pctByDeptWeek = new Map();
+  for (const j of state.journals) {
+    const key = `${j.department}|${mondayOf(j.periodStart)}`;
+    pctByDeptWeek.set(key, journalPercent(j));
+  }
+  const heatHtml = `
+  <div class="ov-heat-wrap">
+    <table class="ov-heat">
+      <thead><tr><th>餐廳</th>${weeks.map((w) => `<th>${toROC(w).slice(4)}</th>`).join("")}</tr></thead>
+      <tbody>${names.map((name) => `<tr><th>${escapeHtml(name)}</th>${weeks.map((w) => {
+        const p = pctByDeptWeek.get(`${name}|${w}`);
+        if (p === undefined) return `<td class="ov-heat-none" title="${escapeHtml(name)}｜${toROC(w)} 這週：沒有週誌">—</td>`;
+        return `<td class="${p >= 70 ? "ov-heat-strong" : ""}" style="--heat:${Math.round(12 + p * 0.88)}%" title="${escapeHtml(name)}｜${toROC(w)} 這週：完成度 ${p}%">${p}</td>`;
+      }).join("")}</tr>`).join("")}</tbody>
+    </table>
+  </div>`;
+
+  const byCategory = new Map();
+  const byAssignee = new Map();
+  for (const j of latest.values()) {
+    for (const { cat, it } of openItemsOf(j)) {
+      const isOd = dateUrgency(it.expectedDate, it.percent) === "overdue";
+      const c = byCategory.get(cat.name) || { value: 0, od: 0 };
+      c.value++; if (isOd) c.od++;
+      byCategory.set(cat.name, c);
+      const who = (it.assignee || "").trim() || "（未指定）";
+      const a = byAssignee.get(who) || { value: 0, od: 0 };
+      a.value++; if (isOd) a.od++;
+      byAssignee.set(who, a);
+    }
+  }
+  const toBarRows = (map) => [...map.entries()]
+    .sort((a, b) => b[1].value - a[1].value)
+    .slice(0, 8)
+    .map(([label, v]) => ({ label, value: v.value, extra: v.od ? `逾期 ${v.od}` : "", tip: `${label}：進行中 ${v.value} 項${v.od ? `，其中逾期 ${v.od} 項` : ""}` }));
+
+  const ex = overviewExportOptions();
+  const exportHtml = `
+  <div class="ov-export">
+    <label class="ov-export-field"><span class="field-label">週誌開始日期 從</span><input type="date" class="field-input" data-action="ov-export-field" data-key="from" value="${ex.from}" /></label>
+    <label class="ov-export-field"><span class="field-label">到</span><input type="date" class="field-input" data-action="ov-export-field" data-key="to" value="${ex.to}" /></label>
+    <label class="ov-export-field"><span class="field-label">餐廳</span>
+      <select class="field-input field-select" data-action="ov-export-field" data-key="dept">
+        <option value="">全部餐廳</option>
+        ${names.map((n) => `<option value="${escapeHtml(n)}" ${n === ex.dept ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}
+      </select>
+    </label>
+    <button class="btn btn-primary ov-export-btn" data-action="ov-export-excel" id="ov-export-btn">匯出 Excel</button>
+  </div>`;
+
+  const section = (icon, title, subtitle, body) => `
+  <section class="card">
+    <div class="settings-section-header"><div class="settings-section-heading">
+      <span class="settings-section-title">${icon}${title}</span>
+      ${subtitle ? `<p class="settings-section-subtitle">${subtitle}</p>` : ""}
+    </div></div>
+    ${body}
+  </section>`;
+
+  return `
+  ${kpis}
+  ${section(ICONS.store, "各餐廳本週狀態", "依各餐廳最新一份週誌；點一下可以直接開啟", `<div class="ov-dept-list">${deptRows || '<p class="settings-note">尚無餐廳</p>'}</div>`)}
+  <div class="ov-grid-2">
+    ${section(ICONS.flag, `逾期項目 <span class="badge ${overdue.length ? "badge-danger" : "badge-soft"}">${overdue.length}</span>`, "已過預計完成日期、還沒到 100% 的項目；點一下可以直接編輯", `<div class="ov-list">${overdueHtml}</div>`)}
+    ${section(ICONS.timer, `本月保養（${new Date().getMonth() + 1} 月）`, "各餐廳保養排程中，排在這個月的項目", `<div class="ov-list">${maintenanceHtml}</div>`)}
+  </div>
+  ${section(ICONS.clock, "完成率走勢", "最近 8 週各餐廳週誌的整體完成度（%），顏色越深完成度越高", heatHtml)}
+  <div class="ov-grid-2">
+    ${section(ICONS.doc, "各類別進行中項目", "最多顯示 8 個類別", barListHtml(toBarRows(byCategory), "目前沒有進行中的項目"))}
+    ${section(ICONS.users, "負責人工作量", "每個人手上還沒完成的項目數", barListHtml(toBarRows(byAssignee), "目前沒有進行中的項目"))}
+  </div>
+  ${section(ICONS.print, "匯出 Excel 報表", "依週誌開始日期篩選，匯出明細與各餐廳摘要兩個工作表；「逾期」以各週週誌的結束日為準", exportHtml)}
+  `;
+}
+
+async function openJournalFromOverview(journalId, catId, itemId) {
+  const j = state.journals.find((x) => x.id === journalId);
+  if (!j) return;
+  await handleSwitchDepartment(j.department);
+  state.currentId = j.id;
+  state.view = "editor";
+  render();
+  if (catId && itemId) openItemModal(catId, itemId);
+}
+
+const XLSX_LIB = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+
+async function exportOverviewExcel() {
+  const ex = overviewExportOptions();
+  const journals = state.journals
+    .filter((j) => (!ex.dept || j.department === ex.dept) && (!ex.from || j.periodStart >= ex.from) && (!ex.to || j.periodStart <= ex.to))
+    .sort((a, b) => a.department.localeCompare(b.department, "zh-Hant") || a.periodStart.localeCompare(b.periodStart));
+  if (!journals.length) {
+    alert("這個日期範圍內沒有週誌");
+    return;
+  }
+
+  const btn = document.getElementById("ov-export-btn");
+  btn.disabled = true;
+  try {
+    await loadScriptOnce(XLSX_LIB);
+  } catch {
+    alert("Excel 產生失敗，請確認網路連線後再試一次");
+    return;
+  } finally {
+    btn.disabled = false;
+  }
+
+  const detail = [["餐廳", "期間開始", "期間結束", "類別", "序", "工作項目", "目前進度說明", "預計完成日期", "負責人", "完成度%", "優先", "狀態"]];
+  const summary = [["餐廳", "週誌份數", "平均完成度%", "項目數", "已完成", "逾期"]];
+  const byDept = new Map();
+  const todayIsoStr = isoDate(new Date());
+  for (const j of journals) {
+    // 報表看的是「那一週當時」是否逾期：以那份週誌的結束日（還沒到就用今天）為準，
+    // 不然舊週誌裡後來才做完的項目，用今天去比會全部變成逾期。
+    const asOf = j.periodEnd && j.periodEnd < todayIsoStr ? j.periodEnd : todayIsoStr;
+    const s = byDept.get(j.department) || { count: 0, pctSum: 0, items: 0, done: 0, overdue: 0 };
+    s.count++;
+    s.pctSum += journalPercent(j);
+    for (const cat of j.categories) {
+      cat.items.forEach((it, idx) => {
+        const pct = Number(it.percent) || 0;
+        const isDone = pct >= 100 || cat.isCompletedSection;
+        const isOd = !isDone && !!it.expectedDate && it.expectedDate < asOf;
+        s.items++;
+        if (isDone) s.done++;
+        if (isOd) s.overdue++;
+        detail.push([j.department, toROC(j.periodStart), toROC(j.periodEnd), cat.name, idx + 1, it.item, it.progress, it.expectedDate ? toROC(it.expectedDate) : "", it.assignee, pct, it.isPriority ? "是" : "", isDone ? "已完成" : isOd ? "逾期" : "進行中"]);
+      });
+    }
+    byDept.set(j.department, s);
+  }
+  for (const [dept, s] of byDept) summary.push([dept, s.count, Math.round(s.pctSum / s.count), s.items, s.done, s.overdue]);
+
+  const wb = XLSX.utils.book_new();
+  const detailSheet = XLSX.utils.aoa_to_sheet(detail);
+  detailSheet["!cols"] = [12, 11, 11, 16, 5, 30, 45, 13, 10, 8, 6, 8].map((wch) => ({ wch }));
+  const summarySheet = XLSX.utils.aoa_to_sheet(summary);
+  summarySheet["!cols"] = [14, 10, 13, 8, 8, 8].map((wch) => ({ wch }));
+  XLSX.utils.book_append_sheet(wb, summarySheet, "各餐廳摘要");
+  XLSX.utils.book_append_sheet(wb, detailSheet, "週誌明細");
+  const data = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const fileName = `工作週誌報表_${ex.dept || "全部餐廳"}_${ex.from}_${ex.to}.xlsx`;
+  const file = new File([data], fileName, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  await deliverFile(file);
+}
+
 // ---------------- Print / Export ----------------
 
 function buildPrintHtml(j) {
@@ -2021,19 +2346,7 @@ async function sharePdfFile(file) {
 
 let pendingPdfFile = null;
 
-// 電腦版沒有系統分享選單可以用，改成直接下載 PDF 檔，再自己拖進電腦版 LINE 或寄出去。
-async function exportPdfAndDownload(fileName) {
-  const downloadBtn = document.getElementById("download-btn");
-  downloadBtn.disabled = true;
-  let file;
-  try {
-    file = await buildPdfFile(fileName);
-  } catch (err) {
-    alert("PDF 產生失敗，請確認網路連線後再試一次");
-    return;
-  } finally {
-    downloadBtn.disabled = false;
-  }
+function downloadFile(file) {
   const url = URL.createObjectURL(file);
   const a = document.createElement("a");
   a.href = url;
@@ -2044,9 +2357,36 @@ async function exportPdfAndDownload(fileName) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function exportPdfAndShare(fileName) {
-  const shareBtn = document.getElementById("share-btn");
-  shareBtn.disabled = true;
+// 把產生好的檔案交給使用者：能用系統分享選單（手機）就開分享選單，方便傳 LINE；
+// 電腦版沒有分享選單，直接下載，再自己拖進電腦版 LINE 或寄出去。
+async function deliverFile(file) {
+  if (!(canSharePdfFiles || isIosStandalone())) {
+    downloadFile(file);
+    return;
+  }
+  if (!navigator.canShare || !navigator.canShare({ files: [file] })) {
+    // 這個檔案類型不能分享（或很舊的 iOS）：PDF 直接開來看，其他檔案改用下載。
+    if (file.type === "application/pdf") window.open(URL.createObjectURL(file), "_blank");
+    else downloadFile(file);
+    return;
+  }
+  try {
+    if (await sharePdfFile(file)) return;
+  } catch (err) {
+    alert("分享失敗：" + err.message);
+    return;
+  }
+  // 產生檔案需要一點時間，iOS 會認為已經不是「使用者剛點的」而拒絕開分享選單，
+  // 所以改跳一個視窗，讓使用者再點一次「儲存／分享」。
+  pendingPdfFile = file;
+  const modal = document.getElementById("modal-pdf-share");
+  modal.querySelector("#pdf-share-name").textContent = file.name;
+  showModal(modal);
+}
+
+// 分享按鈕與下載 PDF 按鈕共用：產生 PDF 的期間先停用按下的那顆按鈕，避免重複點。
+async function exportPdf(fileName, btn) {
+  btn.disabled = true;
   let file;
   try {
     file = await buildPdfFile(fileName);
@@ -2054,25 +2394,9 @@ async function exportPdfAndShare(fileName) {
     alert("PDF 產生失敗，請確認網路連線後再試一次");
     return;
   } finally {
-    shareBtn.disabled = false;
+    btn.disabled = false;
   }
-
-  if (!navigator.canShare || !navigator.canShare({ files: [file] })) {
-    window.open(URL.createObjectURL(file), "_blank");
-    return;
-  }
-  try {
-    if (await sharePdfFile(file)) return;
-  } catch (err) {
-    alert("分享 PDF 失敗：" + err.message);
-    return;
-  }
-  // 產生 PDF 需要一點時間，iOS 會認為已經不是「使用者剛點的」而拒絕開分享選單，
-  // 所以改跳一個視窗，讓使用者再點一次「儲存／分享」。
-  pendingPdfFile = file;
-  const modal = document.getElementById("modal-pdf-share");
-  modal.querySelector("#pdf-share-name").textContent = file.name;
-  showModal(modal);
+  await deliverFile(file);
 }
 
 // 依目前頁面把要列印／分享的內容放進 #print-area 並縮成一頁，回傳 PDF 檔名；沒有內容可輸出時回傳 null。
@@ -2196,6 +2520,7 @@ function wireEvents() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.view = btn.dataset.view;
+      if (state.view === "overview") state.overviewMaintenance = null; // 每次進總覽重新抓，保養排程可能剛被改過
       render();
       if (state.view === "maintenance") maybeShowMaintenanceReminder();
     });
@@ -2208,13 +2533,12 @@ function wireEvents() {
     // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
     setTimeout(() => window.print(), 50);
   });
-  document.getElementById("share-btn").addEventListener("click", () => {
-    const fileName = preparePrintArea();
-    if (fileName) exportPdfAndShare(fileName);
-  });
-  document.getElementById("download-btn").addEventListener("click", () => {
-    const fileName = preparePrintArea();
-    if (fileName) exportPdfAndDownload(fileName);
+  ["share-btn", "download-btn"].forEach((id) => {
+    const btn = document.getElementById(id);
+    btn.addEventListener("click", () => {
+      const fileName = preparePrintArea();
+      if (fileName) exportPdf(fileName, btn);
+    });
   });
   const pdfShareModal = document.getElementById("modal-pdf-share");
   const closePdfShareModal = () => { pendingPdfFile = null; closeModal(pdfShareModal); };
@@ -2273,6 +2597,9 @@ function wireEvents() {
     else if (action === "add-maintenance") openMaintenanceModal(null);
     else if (action === "edit-maintenance") openMaintenanceModal(el.dataset.id);
     else if (action === "delete-maintenance") handleDeleteMaintenance(el.dataset.id);
+    else if (action === "ov-open-journal") openJournalFromOverview(el.dataset.id);
+    else if (action === "ov-open-item") openJournalFromOverview(el.dataset.id, el.dataset.cat, el.dataset.item);
+    else if (action === "ov-export-excel") exportOverviewExcel();
   });
 
   document.getElementById("view-root").addEventListener("change", (e) => {
@@ -2282,6 +2609,7 @@ function wireEvents() {
     if (setting) handleSettingChange(setting, e.target.value);
     if (e.target.dataset.action === "change-role") handleChangeRole(e.target.dataset.id, e.target.value);
     if (e.target.dataset.action === "switch-department") handleSwitchDepartment(e.target.value);
+    if (e.target.dataset.action === "ov-export-field") overviewExportOptions()[e.target.dataset.key] = e.target.value;
     if (e.target.dataset.action === "filter-audit-department") {
       state.auditLogDepartmentFilter = e.target.value;
       render();

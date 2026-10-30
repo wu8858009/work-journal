@@ -1107,6 +1107,133 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
   .fab { right: 32px; bottom: 32px; }
 }
 
+/* ---------- Overview (Admin) ---------- */
+
+.badge-success { background: var(--c-success-bg); color: var(--c-success); }
+.badge-danger { background: var(--c-danger); color: #fff; }
+.ov-text-danger { color: var(--c-danger); }
+
+.nav-badge {
+  position: absolute;
+  top: 4px;
+  left: calc(50% + 6px);
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--c-danger);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.ov-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.ov-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.ov-kpi-label { font-size: 12px; font-weight: 600; color: var(--c-text-soft); }
+.ov-kpi-value { font-size: 26px; font-weight: 800; color: var(--c-text); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ov-kpi-value small { font-size: 14px; font-weight: 600; color: var(--c-text-faint); }
+.ov-kpi-danger { border-color: var(--c-danger-border); background: var(--c-danger-bg); }
+.ov-kpi-danger .ov-kpi-value { color: var(--c-danger); }
+
+.ov-dept-list { display: flex; flex-direction: column; }
+.ov-dept-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "name badge" "period period" "progress progress" "stats stats";
+  gap: 6px 10px;
+  align-items: center;
+  padding: 12px 4px;
+  border-top: 1px solid var(--c-border);
+  cursor: pointer;
+}
+.ov-dept-row:first-child { border-top: none; }
+.ov-dept-row.ov-dept-empty { grid-template-areas: "name badge"; cursor: default; }
+@media (hover: hover) { .ov-dept-row:not(.ov-dept-empty):hover { background: var(--c-bg); } }
+.ov-dept-name { grid-area: name; font-weight: 700; font-size: 14px; color: var(--c-text); }
+.ov-dept-row .badge { grid-area: badge; justify-self: end; }
+.ov-dept-period { grid-area: period; font-size: 12px; color: var(--c-text-faint); }
+.ov-dept-progress { grid-area: progress; display: flex; align-items: center; gap: 10px; }
+.ov-dept-pct { font-size: 12.5px; font-weight: 700; color: var(--c-text-soft); min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.ov-dept-stats { grid-area: stats; font-size: 12px; color: var(--c-text-soft); }
+.ov-dept-stats b { color: var(--c-text); }
+.ov-dept-stats b.ov-text-danger { color: var(--c-danger); }
+
+.ov-list { display: flex; flex-direction: column; }
+.ov-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--c-border);
+  cursor: pointer;
+}
+.ov-list-row:first-child { border-top: none; }
+.ov-list-row-static { cursor: default; }
+@media (hover: hover) { .ov-list-row:not(.ov-list-row-static):hover { background: var(--c-bg); } }
+.ov-list-main { flex: 1; min-width: 0; }
+.ov-list-title { font-size: 13.5px; font-weight: 600; color: var(--c-text); word-break: break-word; }
+.ov-list-meta { font-size: 12px; color: var(--c-text-soft); margin-top: 3px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.ov-overdue-days { font-size: 12px; font-weight: 700; color: var(--c-danger); white-space: nowrap; }
+
+/* 完成率熱度表：同一個色系由淺到深（--heat 是混進表面色的比例），格子裡一定有數字，不只靠顏色。 */
+.ov-heat-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ov-heat { border-collapse: separate; border-spacing: 2px; font-size: 12px; width: 100%; min-width: 520px; }
+.ov-heat th { font-weight: 600; color: var(--c-text-soft); padding: 4px 6px; white-space: nowrap; }
+.ov-heat thead th { font-size: 11px; color: var(--c-text-faint); }
+.ov-heat tbody th { text-align: left; color: var(--c-text); position: sticky; left: 0; background: var(--c-surface); }
+.ov-heat td {
+  text-align: center;
+  padding: 7px 4px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+  background: color-mix(in srgb, var(--c-accent) var(--heat), var(--c-surface));
+}
+.ov-heat td.ov-heat-strong { color: #fff; }
+.ov-heat td.ov-heat-none { background: transparent; color: var(--c-text-faint); font-weight: 400; }
+:root[data-theme="dark"] .ov-heat td.ov-heat-strong { color: #0c0c0e; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .ov-heat td.ov-heat-strong { color: #0c0c0e; }
+}
+
+.ov-bars { display: flex; flex-direction: column; gap: 8px; }
+.ov-bar-row { display: grid; grid-template-columns: minmax(70px, 30%) 1fr auto; align-items: center; gap: 10px; }
+.ov-bar-label { font-size: 12.5px; color: var(--c-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-bar-track { height: 12px; }
+.ov-bar-fill { display: block; height: 100%; background: var(--c-accent); border-radius: 0 4px 4px 0; }
+.ov-bar-value { font-size: 12.5px; font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-bar-extra { font-weight: 600; color: var(--c-danger); margin-left: 6px; font-size: 11.5px; }
+
+.ov-export { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; align-items: end; }
+.ov-export-field { display: block; min-width: 0; }
+.ov-export-field .field-label { margin-top: 0; }
+.ov-export .field-input, .ov-export-btn { height: 42px; }
+.ov-export-field:nth-child(3), .ov-export-btn { grid-column: 1 / -1; }
+
+@media (min-width: 900px) {
+  .ov-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ov-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  .ov-dept-row {
+    grid-template-columns: minmax(120px, 1.2fr) auto minmax(150px, 1.2fr) minmax(140px, 1.5fr) minmax(170px, 1.3fr);
+    grid-template-areas: "name badge period progress stats";
+  }
+  .ov-dept-row .badge { justify-self: start; }
+  .ov-export { grid-template-columns: 1fr 1fr 1fr auto; }
+  .ov-export-field:nth-child(3), .ov-export-btn { grid-column: auto; }
+}
+
 /* ---------- Print ---------- */
 
 .print-area { display: none; }
