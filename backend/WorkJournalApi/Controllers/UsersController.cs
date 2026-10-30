@@ -16,39 +16,37 @@ public class UsersController : ControllerBase
     private readonly MongoContext _db;
     private readonly PasswordHasher _hasher;
     private readonly AuditLogger _audit;
+    private readonly DepartmentAccessService _access;
 
-    public UsersController(MongoContext db, PasswordHasher hasher, AuditLogger audit)
+    public UsersController(MongoContext db, PasswordHasher hasher, AuditLogger audit, DepartmentAccessService access)
     {
         _db = db;
         _hasher = hasher;
         _audit = audit;
+        _access = access;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
         var users = await _db.Users.Find(FilterDefinition<UserDocument>.Empty).SortBy(u => u.CreatedAt).ToListAsync();
-        var deptNameById = (await _db.Departments.Find(FilterDefinition<DepartmentDocument>.Empty).ToListAsync())
-            .ToDictionary(d => d.Id, d => d.Name);
 
-        var list = users.Select(u => new UserDto
+        var list = new List<UserDto>();
+        foreach (var u in users)
         {
-            Id = u.Id,
-            Username = u.Username,
-            DisplayName = u.DisplayName,
-            Role = u.Role,
-            IsApproved = u.IsApproved,
-            CreatedAt = u.CreatedAt.ToUtcIsoString(),
-            Departments = u.Departments
-                .Select(ud => new UserDepartmentAccessDto
-                {
-                    DepartmentId = ud.DepartmentId,
-                    DepartmentName = deptNameById.GetValueOrDefault(ud.DepartmentId, ""),
-                    CanEdit = ud.CanEdit,
-                })
-                .OrderBy(d => d.DepartmentName)
-                .ToList(),
-        }).ToList();
+            list.Add(new UserDto
+            {
+                Id = u.Id,
+                Username = u.Username,
+                DisplayName = u.DisplayName,
+                Role = u.Role,
+                IsApproved = u.IsApproved,
+                CreatedAt = u.CreatedAt.ToUtcIsoString(),
+                Departments = await _access.ResolveUserDepartmentsAsync(u),
+                AllDepartments = u.AllDepartments,
+                AllDepartmentsCanEdit = u.AllDepartmentsCanEdit,
+            });
+        }
 
         return Ok(list);
     }
@@ -66,9 +64,14 @@ public class UsersController : ControllerBase
             .Select(a => new UserDepartmentAccessDocument { DepartmentId = a.DepartmentId, CanEdit = a.CanEdit })
             .ToList();
 
-        await _db.Users.UpdateOneAsync(u => u.Id == id, Builders<UserDocument>.Update.Set(u => u.Departments, newDepartments));
+        var update = Builders<UserDocument>.Update
+            .Set(u => u.Departments, newDepartments)
+            .Set(u => u.AllDepartments, req.AllDepartments)
+            .Set(u => u.AllDepartmentsCanEdit, req.AllDepartmentsCanEdit);
+        await _db.Users.UpdateOneAsync(u => u.Id == id, update);
 
-        await _audit.LogAsync(User.FindFirstValue(ClaimTypes.Name), "SetUserDepartments", $"更新帳號 #{id} 的餐廳權限", departmentIds: req.Departments.Select(a => a.DepartmentId));
+        var summary = req.AllDepartments ? "全部餐廳" : null;
+        await _audit.LogAsync(User.FindFirstValue(ClaimTypes.Name), "SetUserDepartments", $"更新帳號 #{id} 的餐廳權限", department: summary, departmentIds: req.AllDepartments ? null : req.Departments.Select(a => a.DepartmentId));
         return Ok(new { message = "餐廳權限已更新" });
     }
 
@@ -123,6 +126,8 @@ public class UsersController : ControllerBase
                 TokenVersion = 1,
                 CreatedAt = DateTime.UtcNow,
                 Departments = departments,
+                AllDepartments = req.AllDepartments,
+                AllDepartmentsCanEdit = req.AllDepartmentsCanEdit,
             });
         }
         catch (MongoWriteException ex) when (ex.IsDuplicateKey())
@@ -130,7 +135,8 @@ public class UsersController : ControllerBase
             return Conflict(new { message = "此帳號已存在" });
         }
 
-        await _audit.LogAsync(User.FindFirstValue(ClaimTypes.Name), "CreateUser", $"建立帳號 {req.Username}（角色：{role}）", departmentIds: req.Departments.Select(a => a.DepartmentId));
+        var createSummary = req.AllDepartments ? "全部餐廳" : null;
+        await _audit.LogAsync(User.FindFirstValue(ClaimTypes.Name), "CreateUser", $"建立帳號 {req.Username}（角色：{role}）", department: createSummary, departmentIds: req.AllDepartments ? null : req.Departments.Select(a => a.DepartmentId));
         return Ok(new { message = "帳號已建立", id = newId });
     }
 

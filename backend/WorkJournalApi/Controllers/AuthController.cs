@@ -14,13 +14,15 @@ public class AuthController : ControllerBase
     private readonly PasswordHasher _hasher;
     private readonly JwtTokenService _jwt;
     private readonly AuditLogger _audit;
+    private readonly DepartmentAccessService _access;
 
-    public AuthController(MongoContext db, PasswordHasher hasher, JwtTokenService jwt, AuditLogger audit)
+    public AuthController(MongoContext db, PasswordHasher hasher, JwtTokenService jwt, AuditLogger audit, DepartmentAccessService access)
     {
         _db = db;
         _hasher = hasher;
         _jwt = jwt;
         _audit = audit;
+        _access = access;
     }
 
     [HttpPost("login")]
@@ -39,7 +41,7 @@ public class AuthController : ControllerBase
         if (!user.IsApproved)
             return StatusCode(403, new { message = "帳號尚待管理員審核，請等待核准後再登入" });
 
-        var departments = await ResolveDepartmentAccessAsync(user);
+        var departments = await _access.ResolveUserDepartmentsAsync(user);
 
         var token = _jwt.CreateToken(user.Id, user.Username, user.DisplayName, user.Role, user.TokenVersion);
         return Ok(new LoginResponse { Token = token, Username = user.Username, DisplayName = user.DisplayName, Role = user.Role, Departments = departments });
@@ -149,26 +151,5 @@ public class AuthController : ControllerBase
         }
 
         return Ok(new { message = "已送出重設密碼申請，請等待管理員處理" });
-    }
-
-    private async Task<List<UserDepartmentAccessDto>> ResolveDepartmentAccessAsync(UserDocument user)
-    {
-        if (user.Departments.Count == 0) return new();
-
-        var deptIds = user.Departments.Select(d => d.DepartmentId).ToList();
-        var nameById = await _db.Departments
-            .Find(Builders<DepartmentDocument>.Filter.In(d => d.Id, deptIds))
-            .ToListAsync();
-        var lookup = nameById.ToDictionary(d => d.Id, d => d.Name);
-
-        return user.Departments
-            .Select(ud => new UserDepartmentAccessDto
-            {
-                DepartmentId = ud.DepartmentId,
-                DepartmentName = lookup.GetValueOrDefault(ud.DepartmentId, ""),
-                CanEdit = ud.CanEdit,
-            })
-            .OrderBy(d => d.DepartmentName)
-            .ToList();
     }
 }

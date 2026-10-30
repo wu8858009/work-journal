@@ -13,41 +13,18 @@ namespace WorkJournalApi.Controllers;
 public class JournalsController : ControllerBase
 {
     private readonly MongoContext _db;
+    private readonly DepartmentAccessService _access;
 
-    public JournalsController(MongoContext db)
+    public JournalsController(MongoContext db, DepartmentAccessService access)
     {
         _db = db;
-    }
-
-    private bool IsAdmin => User.IsInRole("Admin");
-    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
-    // 非管理員：依帳號在使用者文件內嵌的餐廳清單，回傳「餐廳名稱 -> 是否可編輯」。
-    // 管理員不受限制，回傳 null 代表不需篩選/檢查。
-    private async Task<Dictionary<string, bool>?> GetDepartmentAccessAsync()
-    {
-        if (IsAdmin) return null;
-
-        var access = new Dictionary<string, bool>();
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
-        if (user is null || user.Departments.Count == 0) return access;
-
-        var deptIds = user.Departments.Select(d => d.DepartmentId).ToList();
-        var nameById = (await _db.Departments.Find(Builders<DepartmentDocument>.Filter.In(d => d.Id, deptIds)).ToListAsync())
-            .ToDictionary(d => d.Id, d => d.Name);
-
-        foreach (var ud in user.Departments)
-        {
-            if (nameById.TryGetValue(ud.DepartmentId, out var name))
-                access[name] = ud.CanEdit;
-        }
-        return access;
+        _access = access;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var access = await GetDepartmentAccessAsync();
+        var access = await _access.GetAccessAsync(User);
         var docs = await _db.Journals.Find(FilterDefinition<JournalDocument>.Empty).SortByDescending(j => j.PeriodStart).ToListAsync();
 
         var list = docs
@@ -65,7 +42,7 @@ public class JournalsController : ControllerBase
         var doc = await _db.Journals.Find(j => j.Id == guid.ToString()).FirstOrDefaultAsync();
         if (doc is null) return NotFound();
 
-        var access = await GetDepartmentAccessAsync();
+        var access = await _access.GetAccessAsync(User);
         if (access != null && !access.ContainsKey(doc.Department))
             return StatusCode(403, new { message = "您沒有這個餐廳的權限" });
 
@@ -83,7 +60,7 @@ public class JournalsController : ControllerBase
         var normalizedId = guid.ToString();
         var department = dto.Department ?? "";
 
-        var access = await GetDepartmentAccessAsync();
+        var access = await _access.GetAccessAsync(User);
         if (access != null)
         {
             if (!access.TryGetValue(department, out var canEditTarget) || !canEditTarget)
@@ -114,7 +91,7 @@ public class JournalsController : ControllerBase
         if (!Guid.TryParse(id, out var guid)) return BadRequest(new { message = "無效的週誌 Id" });
         var normalizedId = guid.ToString();
 
-        var access = await GetDepartmentAccessAsync();
+        var access = await _access.GetAccessAsync(User);
         if (access != null)
         {
             var existing = await _db.Journals.Find(j => j.Id == normalizedId).FirstOrDefaultAsync();

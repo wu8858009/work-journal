@@ -23,6 +23,7 @@ builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<MongoContext>();
 builder.Services.AddSingleton<MongoSeeder>();
 builder.Services.AddScoped<AuditLogger>();
+builder.Services.AddScoped<DepartmentAccessService>();
 
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection["Key"] ?? throw new InvalidOperationException("Missing Jwt:Key in appsettings.json");

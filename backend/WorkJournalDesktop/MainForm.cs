@@ -18,6 +18,7 @@ public class MainForm : Form
         Text = "正在啟動工作週誌...",
     };
     private Process? _apiProcess;
+    private StreamWriter? _apiLogWriter;
 
     public MainForm()
     {
@@ -71,14 +72,36 @@ public class MainForm : Form
         var apiExePath = Path.Combine(exeDir, "WorkJournalApi.exe");
         if (!File.Exists(apiExePath)) return;
 
+        // The API runs with its console window hidden (CreateNoWindow), which previously meant
+        // its console-logged errors (including unhandled exception stack traces behind any
+        // "請求失敗 (500)" the user sees) went nowhere and couldn't be diagnosed after the fact.
+        // Redirect stdout/stderr into a log file next to the exe so they're recoverable.
+        try
+        {
+            var logDir = Path.Combine(exeDir, "logs");
+            Directory.CreateDirectory(logDir);
+            _apiLogWriter = new StreamWriter(new FileStream(Path.Combine(logDir, "api.log"), FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+            _apiLogWriter.WriteLine($"===== 啟動 {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
+        }
+        catch { /* logging is best-effort — never block startup over it */ }
+
         var psi = new ProcessStartInfo(apiExePath)
         {
             WorkingDirectory = exeDir,
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardOutput = _apiLogWriter is not null,
+            RedirectStandardError = _apiLogWriter is not null,
         };
         psi.EnvironmentVariables["WORKJOURNAL_NO_AUTOLAUNCH"] = "1";
         _apiProcess = Process.Start(psi);
+        if (_apiProcess is not null && _apiLogWriter is not null)
+        {
+            _apiProcess.OutputDataReceived += (_, args) => { if (args.Data is not null) _apiLogWriter.WriteLine(args.Data); };
+            _apiProcess.ErrorDataReceived += (_, args) => { if (args.Data is not null) _apiLogWriter.WriteLine(args.Data); };
+            _apiProcess.BeginOutputReadLine();
+            _apiProcess.BeginErrorReadLine();
+        }
     }
 
     private static async Task<bool> WaitForApiAsync(TimeSpan timeout)
@@ -105,5 +128,6 @@ public class MainForm : Form
             try { _apiProcess.Kill(entireProcessTree: true); }
             catch { /* already exiting — ignore */ }
         }
+        try { _apiLogWriter?.Dispose(); } catch { /* ignore */ }
     }
 }

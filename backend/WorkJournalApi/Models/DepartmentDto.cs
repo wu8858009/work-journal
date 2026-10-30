@@ -27,4 +27,6 @@ public class DepartmentAccessInput
 public class SetUserDepartmentsRequest
 {
     public List<DepartmentAccessInput> Departments { get; set; } = new();
+    public bool AllDepartments { get; set; }
+    public bool AllDepartmentsCanEdit { get; set; }
 }

@@ -9,6 +9,8 @@ public class UserDto
     public bool IsApproved { get; set; }
     public string CreatedAt { get; set; } = "";
     public List<UserDepartmentAccessDto> Departments { get; set; } = new();
+    public bool AllDepartments { get; set; }
+    public bool AllDepartmentsCanEdit { get; set; }
 }
 
 public class CreateUserRequest
@@ -18,6 +20,8 @@ public class CreateUserRequest
     public string DisplayName { get; set; } = "";
     public string Role { get; set; } = "User";
     public List<DepartmentAccessInput> Departments { get; set; } = new();
+    public bool AllDepartments { get; set; }
+    public bool AllDepartmentsCanEdit { get; set; }
 }
 
 public class ChangePasswordRequest
