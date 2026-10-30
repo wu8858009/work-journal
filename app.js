@@ -310,8 +310,9 @@ function render() {
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
   const root = document.getElementById("view-root");
   const headerSub = document.getElementById("header-sub");
-  const exportBtn = document.getElementById("export-btn");
-  exportBtn.classList.toggle("hidden", state.view !== "editor" && state.view !== "timers" && state.view !== "maintenance");
+  const printable = state.view === "editor" || state.view === "timers" || state.view === "maintenance";
+  document.getElementById("export-btn").classList.toggle("hidden", !printable || isIosStandalone());
+  document.getElementById("share-btn").classList.toggle("hidden", !printable || !(canSharePdfFiles || isIosStandalone()));
   document.getElementById("fab-add-item").classList.toggle("hidden", state.view !== "editor" || !canEditJournal(getCurrentJournal()));
   document.getElementById("header-title").textContent = state.settings.companyName;
   renderHeaderUser();
@@ -1933,12 +1934,21 @@ window.addEventListener("afterprint", () => {
   area.style.overflow = "";
 });
 
-// iPhone「加入主畫面」的 App（standalone 模式）裡，iOS 會直接忽略 window.print()——按匯出
-// 完全沒反應。這種情況改成自己把 #print-area 截圖做成 PDF，再用 iOS 的分享選單讓使用者
-// 存到「檔案」或傳 LINE。navigator.standalone 只有 iOS 有，且只在主畫面 App 裡才是 true。
+// 「分享 PDF」按鈕：把 #print-area 截圖做成 PDF，再用系統的分享選單讓使用者傳 LINE 或存檔。
+// iPhone「加入主畫面」的 App（standalone 模式）裡，iOS 會直接忽略 window.print()，列印按鈕
+// 按了完全沒反應，所以那裡只顯示分享按鈕。navigator.standalone 只有 iOS 有，且只在主畫面 App 裡才是 true。
 function isIosStandalone() {
   return window.navigator.standalone === true;
 }
+
+// 裝置能不能用系統分享選單分享檔案（iPhone/iPad、Android、部分桌面瀏覽器）。
+const canSharePdfFiles = (() => {
+  try {
+    return !!navigator.canShare && navigator.canShare({ files: [new File([""], "test.pdf", { type: "application/pdf" })] });
+  } catch {
+    return false;
+  }
+})();
 
 const PDF_LIBS = [
   "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
@@ -2000,9 +2010,9 @@ async function sharePdfFile(file) {
 
 let pendingPdfFile = null;
 
-async function exportPdfForIos(fileName) {
-  const exportBtn = document.getElementById("export-btn");
-  exportBtn.disabled = true;
+async function exportPdfAndShare(fileName) {
+  const shareBtn = document.getElementById("share-btn");
+  shareBtn.disabled = true;
   let file;
   try {
     file = await buildPdfFile(fileName);
@@ -2010,7 +2020,7 @@ async function exportPdfForIos(fileName) {
     alert("PDF 產生失敗，請確認網路連線後再試一次");
     return;
   } finally {
-    exportBtn.disabled = false;
+    shareBtn.disabled = false;
   }
 
   if (!navigator.canShare || !navigator.canShare({ files: [file] })) {
@@ -2031,26 +2041,22 @@ async function exportPdfForIos(fileName) {
   showModal(modal);
 }
 
-// 列印對話框跟 PDF 檔都會用到這份 #print-area，呼叫前要先把內容放進去並 fitPrintSheetToOnePage()。
-function printOrExportPdf(fileName) {
-  if (isIosStandalone()) {
-    exportPdfForIos(fileName);
-    return;
-  }
-  // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
-  // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
-  // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
-  setTimeout(() => window.print(), 50);
+// 依目前頁面把要列印／分享的內容放進 #print-area 並縮成一頁，回傳 PDF 檔名；沒有內容可輸出時回傳 null。
+// 列印按鈕跟分享 PDF 按鈕共用這份 #print-area。
+function preparePrintArea() {
+  if (state.view === "timers") return prepareTimersPrint();
+  if (state.view === "maintenance") return prepareMaintenancePrint();
+  return prepareJournalPrint();
 }
 
-function handleExport() {
+function prepareJournalPrint() {
   const j = getCurrentJournal();
-  if (!j) return;
+  if (!j) return null;
   printIsLandscape = false;
   const container = document.getElementById("print-area");
   container.innerHTML = buildPrintHtml(j);
   fitPrintSheetToOnePage();
-  printOrExportPdf(`工作週誌_${j.department}_${j.periodStart}.pdf`);
+  return `工作週誌_${j.department}_${j.periodStart}.pdf`;
 }
 
 function buildTimerPrintHtml() {
@@ -2097,12 +2103,12 @@ function buildTimerPrintHtml() {
   </div>`;
 }
 
-function handleExportTimers() {
+function prepareTimersPrint() {
   printIsLandscape = true;
   const container = document.getElementById("print-area");
   container.innerHTML = buildTimerPrintHtml();
   fitPrintSheetToOnePage();
-  printOrExportPdf(`${Auth.getCurrentDepartment()}燈光定時器.pdf`);
+  return `${Auth.getCurrentDepartment()}燈光定時器.pdf`;
 }
 
 function buildMaintenancePrintHtml() {
@@ -2140,12 +2146,12 @@ function buildMaintenancePrintHtml() {
   </div>`;
 }
 
-function handleExportMaintenance() {
+function prepareMaintenancePrint() {
   printIsLandscape = true;
   const container = document.getElementById("print-area");
   container.innerHTML = buildMaintenancePrintHtml();
   fitPrintSheetToOnePage();
-  printOrExportPdf(`${Auth.getCurrentDepartment()}保養排程.pdf`);
+  return `${Auth.getCurrentDepartment()}保養排程.pdf`;
 }
 
 // ---------------- Event wiring ----------------
@@ -2162,9 +2168,15 @@ function wireEvents() {
   });
 
   document.getElementById("export-btn").addEventListener("click", () => {
-    if (state.view === "timers") handleExportTimers();
-    else if (state.view === "maintenance") handleExportMaintenance();
-    else handleExport();
+    if (!preparePrintArea()) return;
+    // iOS Safari 在某些情況下，window.print() 若跟前面的樣式異動排在同一輪事件迴圈裡，
+    // 抓到的畫面快照可能還是異動前的樣子（縮放沒套用），像是 print 用的是稍舊的一份
+    // 渲染結果。多等一個 tick 讓瀏覽器先把上面的樣式異動真正跑完、畫出來，再觸發列印。
+    setTimeout(() => window.print(), 50);
+  });
+  document.getElementById("share-btn").addEventListener("click", () => {
+    const fileName = preparePrintArea();
+    if (fileName) exportPdfAndShare(fileName);
   });
   const pdfShareModal = document.getElementById("modal-pdf-share");
   const closePdfShareModal = () => { pendingPdfFile = null; closeModal(pdfShareModal); };
