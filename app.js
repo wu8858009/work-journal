@@ -965,6 +965,14 @@ function renderItemModalPhotos(editable) {
     </div>`).join("") || `<p class="cat-empty photo-grid-empty">尚無照片</p>`;
 }
 
+// 「目前進度說明」常常有好幾行，固定高度的輸入框在手機上只露出兩三行、要在框裡面捲動
+// 才看得到後面。改成依內容自動長高，整段都看得到；外層的視窗本身會捲動。
+// 必須在視窗顯示之後呼叫，隱藏時量不到 scrollHeight。
+function autoGrowTextarea(el) {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+}
+
 function openItemModal(catId, itemId) {
   const j = getCurrentJournal();
   if (!j.categories.length) {
@@ -1007,6 +1015,7 @@ function openItemModal(catId, itemId) {
   applyPercentCategoryLock(modal);
   if (!editable) modal.querySelector("#item-field-category").disabled = true;
   showModal(modal);
+  autoGrowTextarea(modal.querySelector("#item-field-progress"));
   if (editable) {
     requestAnimationFrame(() => modal.querySelector("#item-field-name").focus());
   }
@@ -2192,6 +2201,7 @@ function wireEvents() {
   document.getElementById("pdf-share-cancel-btn").addEventListener("click", closePdfShareModal);
   document.getElementById("pdf-share-cancel-footer-btn").addEventListener("click", closePdfShareModal);
   document.getElementById("fab-add-item").addEventListener("click", () => openItemModal(null, null));
+  document.getElementById("item-field-progress").addEventListener("input", (e) => autoGrowTextarea(e.target));
   document.getElementById("theme-toggle-app").addEventListener("click", () => Theme.toggle());
 
   document.getElementById("view-root").addEventListener("click", (e) => {
