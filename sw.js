@@ -1,9 +1,10 @@
-const CACHE_NAME = "wj-cache-v7";
+const CACHE_NAME = "wj-cache-v8";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./config.js",
   "./data.js",
   "./manifest.json",
   "./icon.svg",

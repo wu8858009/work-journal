@@ -12,7 +12,7 @@ RUN dotnet publish backend/WorkJournalApi/WorkJournalApi.csproj -c Release -o /a
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-COPY index.html app.js styles.css data.js manifest.json icon.svg sw.js ./
+COPY index.html app.js styles.css config.js data.js manifest.json icon.svg sw.js ./
 
 # Render tells the container which port to listen on via $PORT at runtime; fall back
 # to 8080 for local `docker run` testing.

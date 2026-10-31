@@ -1,11 +1,31 @@
 /*
- * 資料存取層 (Data Store)
- * 串接後端 ASP.NET Core Web API（MSSQL）。所有方法皆為 async。
- * 若 API 與前端不同網域，請修改下方 API_BASE 為完整網址，例如：
- *   const API_BASE = "https://intranet.example.com/api";
+ * 資料存取層 (Data Store)。所有方法皆為 async。
+ * config.js 有設定 WJ_CLOUD_URL（Google Apps Script 網頁應用程式網址）時，資料存在 Google 試算表；
+ * 沒設定則沿用同網域的 /api 伺服器（ASP.NET 後端）。兩邊的路徑、欄位、錯誤訊息都一樣。
  */
 
 const API_BASE = "/api";
+const CLOUD_URL = (window.WJ_CLOUD_URL || "").trim();
+
+// 送出一個 API 請求，回傳 { status, data }；連不上（或雲端回了不是 JSON 的錯誤頁）就丟出例外。
+// Apps Script 只能用 POST 收、也無法回傳 HTTP 狀態碼，所以把方法、路徑、權杖包進內容裡，
+// 狀態碼放在回應的 s 欄位；Content-Type 用 text/plain 才不會觸發瀏覽器的 CORS 預檢。
+async function apiRequest(method, path, body, token) {
+  if (CLOUD_URL) {
+    const res = await fetch(CLOUD_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ m: method, p: path, t: token || "", b: body === undefined ? null : body }),
+    });
+    const envelope = await res.json();
+    return { status: envelope.s, data: envelope.b };
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = res.status === 204 ? null : await res.json().catch(() => ({}));
+  return { status: res.status, data };
+}
 
 function uid() {
   if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
@@ -100,11 +120,7 @@ const Auth = {
     let res = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        res = await fetch(`${API_BASE}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password }),
-        });
+        res = await apiRequest("POST", "/auth/login", { username, password });
       } catch (e) {
         res = null;
       }
@@ -121,11 +137,8 @@ const Auth = {
     }
 
     if (!res) throw new Error("伺服器目前無法連線，請稍後再試");
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || `請求失敗 (${res.status})`);
-    }
-    const data = await res.json();
+    if (res.status >= 300) throw new Error((res.data && res.data.message) || `請求失敗 (${res.status})`);
+    const data = res.data;
 
     // 先把兩邊都清乾淨，確保同一時間只有一種儲存方式在生效，不會有舊資料殘留搞混。
     [localStorage, sessionStorage].forEach((s) => {
@@ -172,36 +185,20 @@ const Auth = {
   },
 
   async signup(username, password, displayName) {
-    const res = await fetch(`${API_BASE}/auth/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, displayName }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || "註冊失敗");
-    }
-    return res.json();
+    const res = await apiRequest("POST", "/auth/signup", { username, password, displayName });
+    if (res.status >= 300) throw new Error((res.data && res.data.message) || "註冊失敗");
+    return res.data;
   },
 
   async forgotPassword(username) {
-    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || "申請失敗");
-    }
-    return res.json();
+    const res = await apiRequest("POST", "/auth/forgot-password", { username });
+    if (res.status >= 300) throw new Error((res.data && res.data.message) || "申請失敗");
+    return res.data;
   },
 };
 
 async function apiFetch(path, options = {}) {
   const token = Auth.getToken();
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (token) headers.Authorization = `Bearer ${token}`;
 
   // Only GETs are safe to silently retry (no risk of double-applying a write). This matters
   // most right after login: the app immediately fires a burst of GETs to load the dashboard,
@@ -216,7 +213,7 @@ async function apiFetch(path, options = {}) {
   let res = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      res = await apiRequest(method, path, options.body === undefined ? undefined : JSON.parse(options.body), token);
     } catch (e) {
       res = null;
     }
@@ -230,15 +227,14 @@ async function apiFetch(path, options = {}) {
     window.dispatchEvent(new CustomEvent("wj:unauthorized"));
     throw new Error("登入已過期，請重新登入");
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
+  if (res.status >= 300) {
+    const body = res.data || {};
     const err = new Error(body.message || `請求失敗 (${res.status})`);
     err.status = res.status;
     err.body = body; // 409 衝突時裡面有 current（伺服器上最新的資料）
     throw err;
   }
-  if (res.status === 204) return null;
-  return res.json();
+  return res.status === 204 ? null : res.data;
 }
 
 const Store = {
@@ -353,6 +349,18 @@ const Store = {
     return apiFetch("/presence", { method: "DELETE" });
   },
 
+  // 關閉分頁/App 時通知下線：頁面卸載後一般請求會被中斷，雲端用 sendBeacon、伺服器用 keepalive。
+  presenceSignOffOnUnload() {
+    const token = Auth.getToken();
+    if (!token) return;
+    if (CLOUD_URL) {
+      const payload = JSON.stringify({ m: "DELETE", p: "/presence", t: token, b: null });
+      navigator.sendBeacon?.(CLOUD_URL, new Blob([payload], { type: "text/plain;charset=utf-8" }));
+      return;
+    }
+    fetch(`${API_BASE}/presence`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+  },
+
   async getOnlineUsers() {
     return apiFetch("/presence");
   },
@@ -386,6 +394,9 @@ const Store = {
     });
   },
 };
+
+// 雲端（Apps Script）每次請求約 0.5～2 秒、又有同時執行上限，線上名單改成心跳時順便取回，回報間隔放寬。
+Store.usesCloud = !!CLOUD_URL;
 
 window.Store = Store;
 window.Auth = Auth;

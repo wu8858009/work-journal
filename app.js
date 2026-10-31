@@ -3025,16 +3025,26 @@ function stopPresence() {
 }
 
 // 每 10 秒回報一次「我還在線上」；關掉頁面/App 時立刻通知下線；管理員每 5 秒更新一次名單，
-// 所以上線、下線大約幾秒內就會反映在名單上。
+// 所以上線、下線大約幾秒內就會反映在名單上。資料在 Google 雲端時每次請求比較慢、也有同時執行上限：
+// 改成每 20 秒回報一次，管理員的名單直接從回報的回應拿，不另外輪詢。
 let presenceUnloadWired = false;
 
 function startPresence() {
   stopPresence();
-  const beat = () => { if (Auth.isLoggedIn()) Store.presenceHeartbeat(Auth.getCurrentDepartment()).catch(() => {}); };
+  const beat = () => {
+    if (!Auth.isLoggedIn()) return;
+    Store.presenceHeartbeat(Auth.getCurrentDepartment())
+      .then((online) => {
+        if (!Array.isArray(online) || !Auth.isAdmin()) return;
+        state.onlineUsers = online;
+        updateOnlineUsersUi();
+      })
+      .catch(() => {});
+  };
   beat();
-  presenceTimers.push(setInterval(beat, 10000));
+  presenceTimers.push(setInterval(beat, Store.usesCloud ? 20000 : 10000));
   presenceTimers.push(setInterval(syncFromServer, SYNC_INTERVAL_MS));
-  if (Auth.isAdmin()) {
+  if (Auth.isAdmin() && !Store.usesCloud) {
     refreshOnlineUsers();
     presenceTimers.push(setInterval(refreshOnlineUsers, 5000));
   }
@@ -3045,16 +3055,12 @@ function startPresence() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !Auth.isLoggedIn()) return;
     beat();
-    refreshOnlineUsers();
+    if (!Store.usesCloud) refreshOnlineUsers();
     syncFromServer();
   });
   window.addEventListener("online", () => syncFromServer());
-  // 關閉分頁/視窗：用 keepalive 讓請求在頁面卸載後仍能送出（一般 fetch 會被中斷）。
-  window.addEventListener("pagehide", () => {
-    const token = Auth.getToken();
-    if (!token) return;
-    fetch(`${API_BASE}/presence`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
-  });
+  // 關閉分頁/視窗：用 sendBeacon / keepalive 讓請求在頁面卸載後仍能送出（一般 fetch 會被中斷）。
+  window.addEventListener("pagehide", () => Store.presenceSignOffOnUnload());
 }
 
 async function refreshOnlineUsers() {
