@@ -806,8 +806,11 @@ async function persistMaintenanceSchedule() {
 }
 
 // 每次切換到「保養排程」頁面（同一次登入內只跳一次），跳出提醒視窗列出本月需執行的項目。
+// 排程還沒從雲端載入完成（department 還不是目前餐廳）時先不算數，載入後會再呼叫一次。
 function maybeShowMaintenanceReminder() {
   if (state.maintenanceReminderShown) return;
+  const dept = Auth.getCurrentDepartment();
+  if (!dept || state.maintenanceSchedule.department !== dept) return;
   state.maintenanceReminderShown = true;
 
   const currentMonth = new Date().getMonth() + 1;
@@ -1891,6 +1894,7 @@ async function handleSwitchDepartment(name) {
   state.maintenanceSchedule = name ? await Store.getMaintenanceSchedule(name) : { department: "", tasks: [] };
   state.maintenanceReminderShown = false;
   render();
+  if (state.view === "maintenance") maybeShowMaintenanceReminder();
 }
 
 // ---------------- Overview (Admin) ----------------
@@ -2843,19 +2847,25 @@ async function startApp() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
 
-  state.settings = await Store.getSettings();
-  setJournals(await Store.getAllJournals());
-  if (Auth.isAdmin()) {
-    state.users = await Store.getUsers();
-    state.passwordResetRequests = await Store.getPasswordResetRequests();
-    state.auditLogs = await Store.getAuditLogs();
-    state.departments = await Store.getDepartments();
-  } else {
-    state.users = [];
-    state.passwordResetRequests = [];
-    state.auditLogs = [];
-    state.departments = [];
-  }
+  // 各項資料互不相依，同時抓：雲端每個請求約 1～2 秒，一個接一個抓要等十幾秒。
+  const dept = Auth.getCurrentDepartment();
+  const isAdmin = Auth.isAdmin();
+  const [settings, journals, users, resetRequests, auditLogs, departments, lightTimer, maintenanceSchedule] = await Promise.all([
+    Store.getSettings(),
+    Store.getAllJournals(),
+    isAdmin ? Store.getUsers() : [],
+    isAdmin ? Store.getPasswordResetRequests() : [],
+    isAdmin ? Store.getAuditLogs() : [],
+    isAdmin ? Store.getDepartments() : [],
+    dept ? Store.getLightTimer(dept) : { department: "", rows: [] },
+    dept ? Store.getMaintenanceSchedule(dept) : { department: "", tasks: [] },
+  ]);
+  state.settings = settings;
+  setJournals(journals);
+  state.users = users;
+  state.passwordResetRequests = resetRequests;
+  state.auditLogs = auditLogs;
+  state.departments = departments;
 
   const targetDept = resolveDefaultDepartment();
   const hasJournalForTarget = state.journals.some((j) => j.department === targetDept);
@@ -2867,10 +2877,11 @@ async function startApp() {
   const currentDeptJournal = state.journals.find((j) => j.department === Auth.getCurrentDepartment());
   state.currentId = currentDeptJournal ? currentDeptJournal.id : (state.journals.length ? state.journals[0].id : null);
 
-  state.lightTimer = Auth.getCurrentDepartment() ? await Store.getLightTimer(Auth.getCurrentDepartment()) : { department: "", rows: [] };
-  state.maintenanceSchedule = Auth.getCurrentDepartment() ? await Store.getMaintenanceSchedule(Auth.getCurrentDepartment()) : { department: "", tasks: [] };
+  state.lightTimer = lightTimer;
+  state.maintenanceSchedule = maintenanceSchedule;
 
   render();
+  if (state.view === "maintenance") maybeShowMaintenanceReminder();
   startPresence();
 
   if ("serviceWorker" in navigator) {
