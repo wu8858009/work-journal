@@ -2324,8 +2324,13 @@ function isIosStandalone() {
   return window.navigator.standalone === true;
 }
 
-// 裝置能不能用系統分享選單分享檔案（iPhone/iPad、Android、部分桌面瀏覽器）。
-const canSharePdfFiles = (() => {
+// 手機、平板（iPadOS 會偽裝成 Mac，用觸控點數分辨）。
+const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+
+// 能不能用系統分享選單分享檔案。只在手機、平板上用：Windows 也有分享選單，但電腦版 LINE
+// 收不到從那裡傳來的 PDF（點了沒反應），電腦版改成直接下載，再拖進 LINE 聊天視窗。
+const canSharePdfFiles = isMobileDevice && (() => {
   try {
     return !!navigator.canShare && navigator.canShare({ files: [new File([""], "test.pdf", { type: "application/pdf" })] });
   } catch {
