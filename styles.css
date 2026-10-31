@@ -1050,6 +1050,16 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .month-toggle-btn:hover { border-color: var(--c-accent); }
 .month-toggle-btn.active { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
 
+.maintenance-weekly { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--c-text-soft); cursor: pointer; }
+.maintenance-weekly input { width: 16px; height: 16px; accent-color: var(--c-accent); }
+.maintenance-auto {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  min-height: 42px; padding: 10px 12px;
+  border: 1px dashed var(--c-border); border-radius: var(--radius-sm);
+  background: var(--c-bg);
+}
+.maintenance-auto-empty { font-size: 12.5px; color: var(--c-text-faint); }
+
 /* ---------- Desktop layout (wide windows / the WebView2 desktop shell) ----------
    Mobile layout above is untouched; everything here only applies at wide viewports,
    restructuring the shell from "bottom tab bar over a narrow phone-width card" into

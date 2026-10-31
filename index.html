@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="./icon.svg" />
-<link rel="stylesheet" href="./styles.css?v=20261030f" />
+<link rel="stylesheet" href="./styles.css?v=20261031c" />
 <script>
   (function () {
     try {
@@ -384,22 +384,14 @@
         <label class="field-label">項目名稱</label>
         <input type="text" id="maintenance-field-name" class="field-input" placeholder="例如：澆灌系統檢查及調整" />
 
-        <div class="field-row">
-          <div>
-            <label class="field-label">頻率標示</label>
-            <input type="text" id="maintenance-field-frequency" class="field-input" placeholder="例如：★季" />
-          </div>
-          <div>
-            <label class="field-label">次數/年</label>
-            <input type="text" id="maintenance-field-times" class="field-input" placeholder="例如：4次/年" />
-          </div>
-        </div>
-
         <label class="field-label">適用月份</label>
         <div class="month-toggle-grid" id="maintenance-field-active-months"></div>
+        <label class="maintenance-weekly hidden" id="maintenance-weekly-row">
+          <input type="checkbox" id="maintenance-field-weekly" /> 每週執行（52次/年）
+        </label>
 
-        <label class="field-label">月份說明（選填，留空則自動產生）</label>
-        <input type="text" id="maintenance-field-months-text" class="field-input" placeholder="例如：依農曆節氣(春、夏、秋、冬)" />
+        <label class="field-label">頻率與次數（依月份自動產生）</label>
+        <div class="maintenance-auto" id="maintenance-auto-summary"></div>
       </div>
       <div class="modal-footer">
         <div class="modal-footer-right">
@@ -511,8 +503,8 @@
 
   <div id="print-area" class="print-area"></div>
 
-  <script src="./config.js?v=20261031b"></script>
-  <script src="./data.js?v=20261031b"></script>
-  <script src="./app.js?v=20261031b"></script>
+  <script src="./config.js?v=20261031c"></script>
+  <script src="./data.js?v=20261031c"></script>
+  <script src="./app.js?v=20261031c"></script>
 </body>
 </html>

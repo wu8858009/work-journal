@@ -677,15 +677,55 @@ function renderMaintenance() {
 
 // ---------------- Modal: Maintenance schedule (Admin only) ----------------
 
-function renderMonthToggleGrid(container, activeMonths) {
+function renderMonthToggleGrid(container, activeMonths, onChange) {
   const active = new Set(activeMonths || []);
   container.innerHTML = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
     return `<button type="button" class="month-toggle-btn ${active.has(m) ? "active" : ""}" data-month="${m}">${m}</button>`;
   }).join("");
   container.querySelectorAll(".month-toggle-btn").forEach((btn) => {
-    btn.addEventListener("click", () => btn.classList.toggle("active"));
+    btn.addEventListener("click", () => {
+      btn.classList.toggle("active");
+      onChange?.();
+    });
   });
+}
+
+// 依勾選的月份推算頻率標示、次數與月份說明，標示沿用原本表格的寫法（★季、▲半年…）。
+// 間隔平均的才給週期標示，否則標「不定期」；12 個月全選時可再指定是每月還是每週。
+const MAINTENANCE_STEP_LABELS = { 2: "#2個月", 3: "★季", 4: "#4個月", 6: "▲半年" };
+
+function describeMaintenanceMonths(months, weekly) {
+  const n = months.length;
+  if (!n) return null;
+  const monthsText = `${months.join("、")}月`;
+  if (n === 12) return weekly
+    ? { frequencyLabel: "週", timesPerYear: "52次/年", monthsText }
+    : { frequencyLabel: "月", timesPerYear: "12次/年", monthsText };
+  if (n === 1) return { frequencyLabel: "⊙年", timesPerYear: "1次/年", monthsText };
+  const step = 12 / n;
+  const even = Number.isInteger(step) && months.every((m, i) => (months[(i + 1) % n] - m + 12) % 12 === step);
+  return { frequencyLabel: (even && MAINTENANCE_STEP_LABELS[step]) || "不定期", timesPerYear: `${n}次/年`, monthsText };
+}
+
+// 沒選任何月份的舊資料（例如「依農曆節氣」）保留原本的文字，不另外推算。
+let maintenanceModalLegacy = null;
+
+function maintenanceModalResult(modal) {
+  const months = readMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"));
+  const weekly = modal.querySelector("#maintenance-field-weekly").checked;
+  return describeMaintenanceMonths(months, weekly) || maintenanceModalLegacy;
+}
+
+function updateMaintenanceAutoSummary(modal) {
+  const months = readMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"));
+  modal.querySelector("#maintenance-weekly-row").classList.toggle("hidden", months.length !== 12);
+  const r = maintenanceModalResult(modal);
+  modal.querySelector("#maintenance-auto-summary").innerHTML = r && (r.frequencyLabel || r.timesPerYear || r.monthsText)
+    ? `${r.frequencyLabel ? `<span class="timer-season-pill maintenance-freq-pill">${escapeHtml(r.frequencyLabel)}</span>` : ""}
+       ${r.timesPerYear ? `<span class="maintenance-times">${escapeHtml(r.timesPerYear)}</span>` : ""}
+       ${r.monthsText ? `<span class="maintenance-months-text">${escapeHtml(r.monthsText)}</span>` : ""}`
+    : `<span class="maintenance-auto-empty">點選上方月份，會自動顯示頻率、次數和月份</span>`;
 }
 
 function readMonthToggleGrid(container) {
@@ -706,10 +746,12 @@ function openMaintenanceModal(id) {
   modal.dataset.id = isNew ? "" : id;
   modal.querySelector("#maintenance-modal-title").textContent = isNew ? "新增保養項目" : "編輯保養項目";
   modal.querySelector("#maintenance-field-name").value = t.name;
-  modal.querySelector("#maintenance-field-frequency").value = t.frequencyLabel;
-  modal.querySelector("#maintenance-field-times").value = t.timesPerYear;
-  modal.querySelector("#maintenance-field-months-text").value = t.monthsText;
-  renderMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"), t.activeMonths);
+  maintenanceModalLegacy = isNew ? null : { frequencyLabel: t.frequencyLabel || "", timesPerYear: t.timesPerYear || "", monthsText: t.monthsText || "" };
+  const weeklyBox = modal.querySelector("#maintenance-field-weekly");
+  weeklyBox.checked = (t.frequencyLabel || "").includes("週");
+  weeklyBox.onchange = () => updateMaintenanceAutoSummary(modal);
+  renderMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"), t.activeMonths, () => updateMaintenanceAutoSummary(modal));
+  updateMaintenanceAutoSummary(modal);
   showModal(modal);
   requestAnimationFrame(() => modal.querySelector("#maintenance-field-name").focus());
 }
@@ -726,14 +768,14 @@ async function saveMaintenanceModal() {
   }
 
   const activeMonths = readMonthToggleGrid(modal.querySelector("#maintenance-field-active-months"));
-  const monthsTextInput = modal.querySelector("#maintenance-field-months-text").value.trim();
+  const auto = maintenanceModalResult(modal) || { frequencyLabel: "", timesPerYear: "", monthsText: "" };
 
   const data = {
     id: isNew ? uid() : id,
     name,
-    frequencyLabel: modal.querySelector("#maintenance-field-frequency").value.trim(),
-    timesPerYear: modal.querySelector("#maintenance-field-times").value.trim(),
-    monthsText: monthsTextInput || (activeMonths.length ? `${activeMonths.join("、")}月` : ""),
+    frequencyLabel: auto.frequencyLabel,
+    timesPerYear: auto.timesPerYear,
+    monthsText: auto.monthsText,
     activeMonths,
   };
 
