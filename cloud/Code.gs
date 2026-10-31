@@ -1,3 +1,4 @@
+/** @OnlyCurrentDoc */
 /**
  * 工作週誌 雲端後端（Google Apps Script ＋ Google 試算表）
  *
