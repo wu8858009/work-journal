@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>下載工作週誌</title>
+<meta name="theme-color" content="#0f4c75" />
+<link rel="icon" href="../icon.svg" />
+<style>
+  :root {
+    --ink: #17222c;
+    --muted: #5d6b78;
+    --line: #dbe3ea;
+    --bg: #eef3f7;
+    --card: #ffffff;
+    --brand: #0f4c75;
+    --brand-soft: #e4eff7;
+    --warn-bg: #fff4dc;
+    --warn-ink: #6d4c00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 -apple-system, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  }
+  main {
+    width: 100%;
+    max-width: 400px;
+    padding: 32px 24px;
+    background: var(--card);
+    border-radius: 20px;
+    box-shadow: 0 8px 30px rgba(15, 76, 117, .12);
+    text-align: center;
+  }
+  .logo { width: 84px; height: 84px; display: block; margin: 0 auto 12px; }
+  h1 { margin: 0; font-size: 26px; line-height: 1.3; }
+  .sub { margin: 4px 0 24px; color: var(--muted); font-size: 15px; }
+  .qr { display: none; margin-bottom: 24px; }
+  .qr img { width: 200px; height: 200px; display: block; margin: 0 auto 8px; }
+  .qr p { margin: 0; font-weight: 600; }
+  .is-desktop .qr { display: block; }
+  .buttons { display: flex; flex-direction: column; gap: 12px; }
+  .is-android .buttons { flex-direction: column-reverse; }
+  .btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    min-height: 60px;
+    padding: 9px 16px;
+    border: 1px solid var(--brand);
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--brand);
+    font: inherit;
+    font-weight: 700;
+    line-height: 1.35;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .btn small { display: block; font-size: 13px; font-weight: 500; }
+  .btn[aria-expanded="true"], .is-ios #btn-ios, .is-android #btn-android, .primary {
+    background: var(--brand);
+    color: #fff;
+  }
+  .steps { margin-top: 20px; padding: 16px; border-radius: 12px; background: var(--brand-soft); text-align: left; }
+  .steps[hidden] { display: none; }
+  .steps h2 { margin: 0 0 8px; font-size: 17px; }
+  .steps ol { margin: 0 0 14px; padding-left: 22px; }
+  .steps li + li { margin-top: 6px; }
+  .steps p { margin: 0 0 14px; }
+  .warn { display: none; margin: 0 0 16px; padding: 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-ink); font-size: 15px; text-align: left; }
+  .in-app .warn { display: block; }
+  .warn button { margin-top: 8px; padding: 6px 12px; border: 1px solid currentColor; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body class="is-desktop">
+<main>
+  <img class="logo" src="../icon.svg" alt="" />
+  <h1>工作週誌</h1>
+  <p class="sub">企業工作週誌管理 App</p>
+
+  <div class="warn" id="warn">
+    你現在是在 LINE 或其他 App 裡開啟，無法安裝。請複製網址，改用 Safari 或 Chrome 開啟。
+    <br /><button type="button" id="copy">複製網址</button>
+  </div>
+
+  <div class="qr">
+    <img src="./qr.svg" alt="下載頁二維碼" />
+    <p>用手機掃描二維碼下載</p>
+  </div>
+
+  <div class="buttons">
+    <button class="btn" id="btn-ios" type="button" aria-expanded="false" aria-controls="steps-ios">iOS 版本<small>立即安裝</small></button>
+    <button class="btn" id="btn-android" type="button" aria-expanded="false" aria-controls="steps-android">Android 版本<small>立即安裝</small></button>
+  </div>
+
+  <section class="steps" id="steps-ios" hidden>
+    <h2>iPhone 安裝步驟</h2>
+    <ol>
+      <li>按下方按鈕，打開工作週誌。</li>
+      <li>點瀏覽器的<strong>分享</strong>按鈕。</li>
+      <li>往下滑，選<strong>加入主畫面</strong>，再按<strong>新增</strong>。</li>
+      <li>之後從桌面的圖示開啟即可。</li>
+    </ol>
+    <a class="btn primary js-open-app" href="../index.html">打開工作週誌</a>
+  </section>
+
+  <section class="steps" id="steps-android" hidden>
+    <div id="android-apk" hidden>
+      <h2>Android 安裝步驟</h2>
+      <ol>
+        <li>按下方按鈕下載安裝檔。</li>
+        <li>下載完成後點開檔案。</li>
+        <li>若跳出提示，選擇<strong>允許此來源</strong>，再按<strong>安裝</strong>。</li>
+      </ol>
+      <a class="btn primary" id="apk-link" href="#" download>下載 APK</a>
+    </div>
+    <div id="android-pwa">
+      <h2>Android 安裝步驟</h2>
+      <ol>
+        <li>按下方按鈕，用 Chrome 打開工作週誌。</li>
+        <li>點右上角的<strong>⋮</strong>選單。</li>
+        <li>選<strong>加到主畫面</strong>或<strong>安裝應用程式</strong>。</li>
+      </ol>
+      <a class="btn primary js-open-app" href="../index.html">打開工作週誌</a>
+    </div>
+  </section>
+</main>
+
+<script>
+  // 打包好 APK 後填入檔名（例如 "./work-journal.apk"），Android 按鈕就會改成下載 APK。
+  const APK_URL = "";
+
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/.test(ua);
+  const isInApp = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger/i.test(ua);
+
+  document.body.classList.remove("is-desktop");
+  document.body.classList.add(isIOS ? "is-ios" : isAndroid ? "is-android" : "is-desktop");
+  if (isInApp) document.body.classList.add("in-app");
+
+  if (APK_URL) {
+    document.getElementById("android-apk").hidden = false;
+    document.getElementById("android-pwa").hidden = true;
+    document.getElementById("apk-link").href = APK_URL;
+  }
+
+  function toggle(name) {
+    for (const key of ["ios", "android"]) {
+      const open = key === name && document.getElementById("steps-" + key).hidden;
+      document.getElementById("steps-" + key).hidden = !open;
+      document.getElementById("btn-" + key).setAttribute("aria-expanded", String(open));
+      if (open) document.getElementById("steps-" + key).scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+  document.getElementById("btn-ios").addEventListener("click", () => toggle("ios"));
+  document.getElementById("btn-android").addEventListener("click", () => toggle("android"));
+
+  document.getElementById("copy").addEventListener("click", async (event) => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      event.target.textContent = "已複製";
+    } catch {
+      window.prompt("請長按複製這個網址", location.href);
+    }
+  });
+</script>
+</body>
+</html>
