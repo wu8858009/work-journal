@@ -353,6 +353,7 @@ function render() {
     headerSub.textContent = "設定";
     root.innerHTML = renderSettings();
   }
+  hydratePhotos(root);
 }
 
 function renderEditor() {
@@ -442,7 +443,7 @@ function itemRowHtml(cat, it, idx) {
     <div class="item-right">
       ${it.photos && it.photos.length ? `
       <div class="item-photo-strip" data-action="view-photos" data-cat="${cat.id}" data-item="${it.id}" title="共 ${it.photos.length} 張照片，點擊放大">
-        <img src="${it.photos[0].dataUrl}" class="item-photo-thumb" alt="" />
+        <img ${photoImgAttrs(it.photos[0])} class="item-photo-thumb" alt="" />
         ${it.photos.length > 1 ? `<span class="item-photo-count">+${it.photos.length - 1}</span>` : ""}
       </div>` : ""}
       <button class="icon-btn priority-toggle-btn ${it.isPriority ? "priority-toggle-active" : ""}" data-action="toggle-item-priority" data-cat="${cat.id}" data-item="${it.id}" title="${it.isPriority ? "取消優先處理" : "標記為優先處理"}">${ICONS.flag}</button>
@@ -1021,13 +1022,110 @@ function renderSettings() {
 // 編輯/刪除都只改這份暫存陣列，按「儲存」才會寫回項目物件並隨整份週誌一起送出。
 let itemModalPhotos = [];
 
+// ---------------- 照片載入 ----------------
+// 週誌資料裡只有照片的 Id，內容在 Google 雲端硬碟，畫面要顯示時才抓。Id 對應的內容不會變
+// （編輯照片會換新 Id），抓過的留在記憶體和瀏覽器快取，下次開就不用再下載；登出時清掉。
+
+const PHOTO_CACHE = "wj-photos";
+const PHOTO_BATCH_SIZE = 6;
+const PHOTO_PARALLEL = 3;
+const photoCache = new Map();
+const photoInFlight = new Map();
+
+function photoSrc(p) {
+  return p.dataUrl || photoCache.get(p.id) || "";
+}
+
+// 還沒載入的照片不寫 src，hydratePhotos 找得到它們，載入後再補上。
+function photoImgAttrs(p) {
+  const src = photoSrc(p);
+  return `data-photo-src="${p.id}" data-journal="${state.currentId}"${src ? ` src="${src}"` : ""}`;
+}
+
+function rememberPhoto(id, dataUrl) {
+  photoCache.set(id, dataUrl);
+  document.querySelectorAll(`img[data-photo-src="${id}"]`).forEach((img) => { img.src = dataUrl; });
+}
+
+function photoCacheUrl(id) {
+  return `./__wj_photo/${id}`;
+}
+
+async function readStoredPhoto(id) {
+  try {
+    const res = await (await caches.open(PHOTO_CACHE)).match(photoCacheUrl(id));
+    return res ? await res.text() : null;
+  } catch {
+    return null; // 瀏覽器不支援或私密模式：直接向雲端抓
+  }
+}
+
+async function storePhoto(id, dataUrl) {
+  try {
+    await (await caches.open(PHOTO_CACHE)).put(photoCacheUrl(id), new Response(dataUrl));
+  } catch {
+    // 存不進快取也沒關係，下次再抓一次
+  }
+}
+
+function clearPhotoCache() {
+  photoCache.clear();
+  try { caches.delete(PHOTO_CACHE).catch(() => {}); } catch {}
+}
+
+async function fetchPhotos(journalId, ids) {
+  const missing = [];
+  await Promise.all(ids.map(async (id) => {
+    const stored = await readStoredPhoto(id);
+    if (stored) rememberPhoto(id, stored);
+    else missing.push(id);
+  }));
+  const batches = [];
+  for (let i = 0; i < missing.length; i += PHOTO_BATCH_SIZE) batches.push(missing.slice(i, i + PHOTO_BATCH_SIZE));
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length) {
+      const batch = batches[next++];
+      try {
+        const { photos } = await Store.getPhotos(journalId, batch);
+        Object.entries(photos || {}).forEach(([id, dataUrl]) => {
+          rememberPhoto(id, dataUrl);
+          storePhoto(id, dataUrl);
+        });
+      } catch {
+        // 這批沒抓到：下次畫面更新時會再試
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: PHOTO_PARALLEL }, worker));
+}
+
+function loadPhotos(journalId, ids) {
+  const fresh = ids.filter((id) => !photoCache.has(id) && !photoInFlight.has(id));
+  if (fresh.length) {
+    const job = fetchPhotos(journalId, fresh).finally(() => fresh.forEach((id) => photoInFlight.delete(id)));
+    fresh.forEach((id) => photoInFlight.set(id, job));
+  }
+  return Promise.all(ids.map((id) => photoInFlight.get(id)));
+}
+
+function hydratePhotos(root) {
+  const byJournal = new Map();
+  root.querySelectorAll("img[data-photo-src]:not([src])").forEach((img) => {
+    const { journal, photoSrc: id } = img.dataset;
+    byJournal.set(journal, [...(byJournal.get(journal) || []), id]);
+  });
+  byJournal.forEach((ids, journalId) => loadPhotos(journalId, [...new Set(ids)]));
+}
+
 function renderItemModalPhotos(editable) {
   const grid = document.getElementById("item-field-photos");
   grid.innerHTML = itemModalPhotos.map((p) => `
     <div class="photo-thumb" data-photo="${p.id}">
-      <img src="${p.dataUrl}" alt="照片" ${editable ? `data-action="edit-photo" data-photo="${p.id}"` : ""} />
+      <img ${photoImgAttrs(p)} alt="照片" ${editable ? `data-action="edit-photo" data-photo="${p.id}"` : ""} />
       ${editable ? `<button type="button" class="photo-thumb-delete" data-action="delete-photo" data-photo="${p.id}" title="刪除照片">${ICONS.close}</button>` : ""}
     </div>`).join("") || `<p class="cat-empty photo-grid-empty">尚無照片</p>`;
+  hydratePhotos(grid);
 }
 
 // 「目前進度說明」常常有好幾行，固定高度的輸入框在手機上只露出兩三行、要在框裡面捲動
@@ -1352,7 +1450,16 @@ function updatePhotoViewerImage() {
   s.scale = 1;
   s.tx = 0;
   s.ty = 0;
-  document.getElementById("photo-viewer-img").src = s.photos[s.index].dataUrl;
+  const viewerImg = document.getElementById("photo-viewer-img");
+  const shown = s.photos[s.index];
+  if (photoSrc(shown)) {
+    viewerImg.src = photoSrc(shown);
+  } else {
+    viewerImg.removeAttribute("src");
+    loadPhotos(state.currentId, s.photos.filter((p) => !photoSrc(p)).map((p) => p.id)).then(() => {
+      if (photoViewerState === s && s.photos[s.index] === shown && photoSrc(shown)) viewerImg.src = photoSrc(shown);
+    });
+  }
   applyPhotoViewerTransform();
   document.getElementById("photo-viewer-count").textContent = s.photos.length > 1 ? `${s.index + 1} / ${s.photos.length}` : "";
   document.getElementById("photo-viewer-prev-btn").classList.toggle("hidden", s.photos.length <= 1);
@@ -2706,7 +2813,7 @@ function wireEvents() {
     renderItemModalPhotos(true);
   });
 
-  document.getElementById("item-field-photos").addEventListener("click", (e) => {
+  document.getElementById("item-field-photos").addEventListener("click", async (e) => {
     const deleteBtn = e.target.closest('[data-action="delete-photo"]');
     if (deleteBtn) {
       itemModalPhotos = itemModalPhotos.filter((p) => p.id !== deleteBtn.dataset.photo);
@@ -2716,7 +2823,14 @@ function wireEvents() {
     const editTarget = e.target.closest('[data-action="edit-photo"]');
     if (editTarget) {
       const p = itemModalPhotos.find((x) => x.id === editTarget.dataset.photo);
-      if (p) openPhotoEditor(p.dataUrl, (newDataUrl) => { p.dataUrl = newDataUrl; renderItemModalPhotos(true); });
+      if (!p) return;
+      if (!photoSrc(p)) await loadPhotos(state.currentId, [p.id]);
+      if (!photoSrc(p)) {
+        alert("照片還沒載入，請確認網路連線後再試一次");
+        return;
+      }
+      // 換新 Id：複製到其他週的項目共用同一張照片，編輯這張不能影響到它們。
+      openPhotoEditor(photoSrc(p), (newDataUrl) => { p.id = uid(); p.dataUrl = newDataUrl; renderItemModalPhotos(true); });
     }
   });
 
@@ -2914,6 +3028,19 @@ function cloneJson(o) {
   return JSON.parse(JSON.stringify(o));
 }
 
+// 存檔成功後，雲端已經有的照片就不用再帶在週誌裡，內容移到照片快取，下次存檔才不會重傳。
+function settleSavedPhotos(local, saved) {
+  const eachPhoto = (j, fn) => j.categories.forEach((c) => c.items.forEach((it) => (it.photos || []).forEach(fn)));
+  const stored = new Set();
+  eachPhoto(saved, (p) => { if (!p.dataUrl) stored.add(p.id); });
+  eachPhoto(local, (p) => {
+    if (!p.dataUrl || !stored.has(p.id)) return;
+    rememberPhoto(p.id, p.dataUrl);
+    storePhoto(p.id, p.dataUrl);
+    delete p.dataUrl;
+  });
+}
+
 function rememberBase(j) {
   journalBases.set(j.id, cloneJson(j));
 }
@@ -2996,6 +3123,7 @@ async function saveJournalNow(id) {
       try {
         const saved = await Store.saveJournal(local, base ? base.version || 0 : 0);
         local.version = saved.version;
+        settleSavedPhotos(local, saved);
         rememberBase(saved);
         return;
       } catch (err) {
@@ -3164,6 +3292,7 @@ function handleLogout() {
   Store.presenceSignOff().catch(() => {});
   stopPresence();
   Auth.logout();
+  clearPhotoCache();
   state.settings = null;
   setJournals([]);
   state.currentId = null;

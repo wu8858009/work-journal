@@ -1,4 +1,5 @@
-const CACHE_NAME = "wj-cache-v8";
+const CACHE_NAME = "wj-cache-v9";
+const PHOTO_CACHE_NAME = "wj-photos"; // app.js 存照片用的，更新版本時不能清掉
 const ASSETS = [
   "./",
   "./index.html",
@@ -17,7 +18,7 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== PHOTO_CACHE_NAME).map((k) => caches.delete(k))))
   );
   self.clients.claim();
 });

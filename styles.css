@@ -883,6 +883,7 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 
 /* ---------- Item photos ---------- */
 
+.item-photo-thumb:not([src]), .photo-thumb img:not([src]) { background: var(--c-border); }
 .photo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .photo-grid-empty { flex: 1 1 100%; padding: 10px 0; margin: 0; }
 .photo-thumb { position: relative; width: 72px; height: 72px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--c-border); background: var(--c-bg); }

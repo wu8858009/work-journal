@@ -260,6 +260,11 @@ const Store = {
     });
   },
 
+  // 取回照片內容：{ photos: { 照片Id: dataUrl } }（一次最多 8 張）
+  async getPhotos(journalId, ids) {
+    return apiFetch("/photos/batch", { method: "POST", body: JSON.stringify({ journalId, ids }) });
+  },
+
   async deleteJournal(id) {
     await apiFetch(`/journals/${id}`, { method: "DELETE" });
   },

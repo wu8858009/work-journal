@@ -1,4 +1,3 @@
-/** @OnlyCurrentDoc */
 /**
  * 工作週誌 雲端後端（Google Apps Script ＋ Google 試算表）
  *
@@ -76,6 +75,7 @@ const ROUTES = [
   ["GET", /^\/journals\/([^/]+)$/, "user", (c) => getJournal_(c, c.args[0])],
   ["PUT", /^\/journals\/([^/]+)$/, "user", (c) => upsertJournal_(c, c.args[0])],
   ["DELETE", /^\/journals\/([^/]+)$/, "user", (c) => deleteJournal_(c, c.args[0])],
+  ["POST", /^\/photos\/batch$/, "user", (c) => getPhotos_(c)],
 
   ["GET", /^\/settings$/, "user", () => ok_(getSettings_())],
   ["PUT", /^\/settings$/, "admin", (c) => saveSettings_(c)],
@@ -303,7 +303,10 @@ function importAll_(c) {
   (tables.PasswordResets || []).forEach((r) => put_("PasswordResets", r.id, r));
   (tables.Settings || []).forEach((st) => put_("Settings", "1", st));
   writeAuditRows_(tables.AuditLogs || []);
-  (b.journals || []).forEach((j) => writeJournal_(j, j.version || 1, j.createdAt || nowIso_(), j.updatedAt || nowIso_()));
+  (b.journals || []).forEach((j) => {
+    savePhotoIndex_(uploadNewPhotos_(j));
+    writeJournal_(j, j.version || 1, j.createdAt || nowIso_(), j.updatedAt || nowIso_());
+  });
   const props = PropertiesService.getScriptProperties();
   Object.keys(b.counters || {}).forEach((k) => props.setProperty("seq_" + k, String(b.counters[k])));
   return ok_({ message: "匯入完成", users: (tables.Users || []).length, journals: (b.journals || []).length });
@@ -666,49 +669,163 @@ function deleteDepartment_(c, id) {
   return noContent_();
 }
 
-// ---------------------------------------------------------------- /journals
-// 週誌內容（不含照片）存在 Journals；照片另外一張一列存在 Photos（鍵＝週誌Id:照片Id），
-// 存檔時只寫入新增或改過的照片，不必每次都重寫所有照片。
+// ---------------------------------------------------------------- 照片（Google 雲端硬碟）
+// 照片檔案放在雲端硬碟的「工作週誌 照片」資料夾，維持私人（沒有公開連結），Photos 工作表只記
+// 「照片 Id → 雲端檔案」。讀週誌時不帶照片內容，畫面要顯示時才用 POST /photos/batch 抓。
+// 照片內容不會變（編輯照片會換新 Id），所以複製到下一週的項目共用同一個檔案，
+// 最後一份用到它的週誌不再需要時才丟到垃圾桶。
+// 用 Drive REST API 而不是 DriveApp：DriveApp 要整個雲端硬碟的權限，這裡只需要 drive.file
+// （只碰得到這個程式自己建立的檔案）。
 
-function photoKey_(journalId, photoId) { return journalId + ":" + photoId; }
+const DRIVE_FILES = "https://www.googleapis.com/drive/v3/files";
+const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id";
+const PHOTO_FOLDER = "工作週誌 照片";
+const PHOTO_BATCH_MAX = 8;
+
+function driveOptions_(options) {
+  return Object.assign({ headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }, options);
+}
+
+function driveCreate_(url, options) {
+  const res = UrlFetchApp.fetch(url, driveOptions_(Object.assign({ method: "post" }, options)));
+  if (res.getResponseCode() >= 300) throw new Error("Google 雲端硬碟寫入失敗（" + res.getResponseCode() + "）");
+  return JSON.parse(res.getContentText()).id;
+}
+
+function photoFolderId_() {
+  const props = PropertiesService.getScriptProperties();
+  let id = props.getProperty("photoFolderId");
+  if (!id) {
+    id = driveCreate_(DRIVE_FILES + "?fields=id", { contentType: "application/json",
+      payload: JSON.stringify({ name: PHOTO_FOLDER, mimeType: "application/vnd.google-apps.folder" }) });
+    props.setProperty("photoFolderId", id);
+  }
+  return id;
+}
+
+function photoHash_(dataUrl) {
+  return b64Url_(sha256_(utf8_(dataUrl))).slice(0, 22);
+}
+
+// dataUrl 上傳成雲端檔案，回傳 Photos 工作表要記的資料
+function uploadPhoto_(id, dataUrl) {
+  const m = /^data:([^;,]+);base64,(.*)$/.exec(dataUrl);
+  if (!m) fail_(400, "照片格式錯誤");
+  const boundary = "wjphoto" + Utilities.getUuid();
+  const metadata = JSON.stringify({ name: id + (m[1] === "image/png" ? ".png" : ".jpg"), parents: [photoFolderId_()] });
+  const body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata +
+    "\r\n--" + boundary + "\r\nContent-Type: " + m[1] + "\r\nContent-Transfer-Encoding: base64\r\n\r\n" + m[2] +
+    "\r\n--" + boundary + "--";
+  const fileId = driveCreate_(DRIVE_UPLOAD, { contentType: "multipart/related; boundary=" + boundary, payload: body });
+  return { h: photoHash_(dataUrl), f: fileId, m: m[1] };
+}
+
+// 上傳這份週誌裡新增的照片。上傳很花時間，在上鎖之前做，才不會卡住別人存檔。
+function uploadNewPhotos_(journal) {
+  const known = {};
+  readAll_("Photos", true).forEach((r) => { known[r.key] = r.meta; });
+  const uploaded = [];
+  eachPhoto_(journal, (p) => {
+    if (typeof p.dataUrl !== "string" || !p.dataUrl || uploaded.some((u) => u.id === p.id)) return;
+    if (known[p.id] && known[p.id].f && known[p.id].h === photoHash_(p.dataUrl)) return;
+    uploaded.push({ id: p.id, meta: uploadPhoto_(p.id, p.dataUrl) });
+  });
+  return uploaded;
+}
+
+function savePhotoIndex_(uploaded) {
+  uploaded.forEach((u) => put_("Photos", u.id, null, u.meta));
+}
+
+function photoIdsOf_(journal) {
+  const ids = [];
+  if (journal) eachPhoto_(journal, (p) => ids.push(p.id));
+  return ids;
+}
+
+// 已經沒有任何週誌用到的照片丟到雲端硬碟的垃圾桶（30 天內還救得回來）
+function dropUnusedPhotos_(ids) {
+  if (!ids.length) return;
+  const used = {};
+  readAll_("Journals").forEach((r) => eachPhoto_(r.data, (p) => { used[p.id] = 1; }));
+  const unused = ids.filter((id) => !used[id]);
+  const recs = readAll_("Photos", true).filter((r) => unused.indexOf(r.key) >= 0 && r.meta.f);
+  if (recs.length) {
+    UrlFetchApp.fetchAll(recs.map((r) => driveOptions_({ url: DRIVE_FILES + "/" + r.meta.f, method: "patch",
+      contentType: "application/json", payload: JSON.stringify({ trashed: true }) })));
+  }
+  removeMany_("Photos", unused);
+}
+
+function getPhotos_(c) {
+  const id = normalizeGuid_(c.body.journalId);
+  if (!id) fail_(400, "無效的週誌 Id");
+  const rec = findRec_("Journals", id);
+  if (!rec) fail_(404, "找不到這份週誌");
+  if (!canSee_(accessOf_(c.user), rec.meta.department)) fail_(403, "您沒有這個餐廳的權限");
+  const allowed = photoIdsOf_(rec.data);
+  const wanted = (c.body.ids || []).filter((x) => allowed.indexOf(x) >= 0).slice(0, PHOTO_BATCH_MAX);
+  const recs = readAll_("Photos", true).filter((r) => wanted.indexOf(r.key) >= 0 && r.meta.f);
+  const photos = {};
+  if (recs.length) {
+    UrlFetchApp.fetchAll(recs.map((r) => driveOptions_({ url: DRIVE_FILES + "/" + r.meta.f + "?alt=media" }))).forEach((res, i) => {
+      if (res.getResponseCode() < 300) photos[recs[i].key] = "data:" + recs[i].meta.m + ";base64," + Utilities.base64Encode(res.getContent());
+    });
+  }
+  return ok_({ photos: photos });
+}
+
+// 把舊版存在試算表裡的照片搬到雲端硬碟。部署後在 Apps Script 編輯器執行一次；
+// 沒搬完（超過 5 分鐘）再執行一次會接著搬。
+function migratePhotosToDrive() {
+  lock_();
+  try {
+    const started = Date.now();
+    const legacy = readAll_("Photos").filter((r) => !r.meta.f);
+    const known = {};
+    readAll_("Photos", true).forEach((r) => { if (r.meta.f) known[r.key] = r.meta; });
+    const done = [];
+    legacy.forEach((r) => {
+      if (Date.now() - started > 300000) return;
+      const parts = r.key.split(":");
+      let photoId = parts[1];
+      if (known[photoId] && known[photoId].h !== photoHash_(r.data)) {
+        // 舊版編輯照片時沿用同一個 Id，同一 Id 內容不同時要拆成兩張
+        photoId = Utilities.getUuid();
+        const rec = findRec_("Journals", parts[0]);
+        if (rec) {
+          eachPhoto_(rec.data, (p) => { if (p.id === parts[1]) p.id = photoId; });
+          put_("Journals", rec.key, rec.data, rec.meta);
+        }
+      }
+      if (!known[photoId]) {
+        known[photoId] = uploadPhoto_(photoId, r.data);
+        put_("Photos", photoId, null, known[photoId]);
+      }
+      done.push(r.key);
+    });
+    removeMany_("Photos", done);
+    console.log("已搬 " + done.length + " 張，剩 " + (legacy.length - done.length) + " 張");
+  } finally {
+    releaseLock_();
+  }
+}
+
+// ---------------------------------------------------------------- /journals
+// 週誌內容（不含照片內容）存在 Journals，一份一列。
 
 function eachPhoto_(journal, fn) {
   (journal.categories || []).forEach((cat) => (cat.items || []).forEach((it) => (it.photos || []).forEach((p) => fn(p))));
 }
 
-function inflate_(rec, photoData) {
-  const j = rec.data;
-  j.version = rec.meta.version || 0;
-  eachPhoto_(j, (p) => {
-    const d = photoData[photoKey_(j.id, p.id)];
-    if (d != null) p.dataUrl = d;
-  });
-  return j;
-}
-
-// journalIds 不給＝全部照片；給了就只讀那幾份週誌的照片所在的列（同一份週誌的照片通常相鄰）
-function photoMap_(journalIds) {
-  const map = {};
-  if (!journalIds) {
-    readAll_("Photos").forEach((r) => { map[r.key] = r.data; });
-    return map;
-  }
-  const want = {};
-  journalIds.forEach((id) => { want[id] = 1; });
-  const rows = readAll_("Photos", true).filter((r) => want[r.meta.j]);
-  if (!rows.length) return map;
-  const first = Math.min.apply(null, rows.map((r) => r.row)), last = Math.max.apply(null, rows.map((r) => r.row));
-  const s = sheet_("Photos");
-  const values = s.getRange(first, 1, last - first + 1, Math.max(2, s.getLastColumn())).getValues();
-  rows.forEach((r) => { map[r.key] = parseChunks_(values[r.row - first]); });
-  return map;
+function journalOut_(rec) {
+  rec.data.version = rec.meta.version || 0;
+  return rec.data;
 }
 
 function getJournals_(c) {
   const access = accessOf_(c.user);
-  const recs = readAll_("Journals").filter((r) => canSee_(access, r.meta.department));
-  const photos = photoMap_(null);
-  return ok_(recs.map((r) => inflate_(r, photos))
+  return ok_(readAll_("Journals").filter((r) => canSee_(access, r.meta.department)).map(journalOut_)
     .sort((a, b) => (a.periodStart < b.periodStart ? 1 : a.periodStart > b.periodStart ? -1 : 0)));
 }
 
@@ -729,32 +846,19 @@ function getJournal_(c, rawId) {
   const rec = findRec_("Journals", id);
   if (!rec) fail_(404, "找不到這份週誌");
   if (!canSee_(accessOf_(c.user), rec.meta.department)) fail_(403, "您沒有這個餐廳的權限");
-  return ok_(inflate_(rec, photoMap_([id])));
+  return ok_(journalOut_(rec));
 }
 
 function validDate_(s) { return /^\d{4}-\d{2}-\d{2}/.test(String(s || "")) && !isNaN(Date.parse(String(s).slice(0, 10))); }
 
 function writeJournal_(j, version, createdAt, updatedAt) {
-  const id = j.id;
-  const existingPhotos = {};
-  readAll_("Photos", true).forEach((r) => { if (r.meta.j === id) existingPhotos[r.key] = r.meta.h; });
-  const keep = {};
   const stored = JSON.parse(JSON.stringify(j));
   delete stored.baseVersion;
   delete stored.version;
   stored.createdAt = createdAt;
   stored.updatedAt = updatedAt;
-  eachPhoto_(stored, (p) => {
-    const key = photoKey_(id, p.id);
-    keep[key] = 1;
-    if (typeof p.dataUrl === "string" && p.dataUrl) {
-      const h = b64Url_(sha256_(utf8_(p.dataUrl))).slice(0, 22);
-      if (existingPhotos[key] !== h) put_("Photos", key, p.dataUrl, { j: id, h: h });
-    }
-    delete p.dataUrl;
-  });
-  put_("Journals", id, stored, { department: stored.department, version: version });
-  removeMany_("Photos", Object.keys(existingPhotos).filter((k) => !keep[k]));
+  eachPhoto_(stored, (p) => { delete p.dataUrl; });
+  put_("Journals", j.id, stored, { department: stored.department, version: version });
 }
 
 function upsertJournal_(c, rawId) {
@@ -763,22 +867,29 @@ function upsertJournal_(c, rawId) {
   const dto = c.body || {};
   if (!validDate_(dto.periodStart) || !validDate_(dto.periodEnd)) fail_(400, "期間日期格式錯誤");
   const department = dto.department || "";
+  const journal = { id: id, department: department, periodStart: dto.periodStart, periodEnd: dto.periodEnd, categories: dto.categories || [] };
 
-  lock_();
   const access = accessOf_(c.user);
   if (access !== null && !canEdit_(access, department)) fail_(403, "您沒有這個餐廳的編輯權限");
-  const rec = findRec_("Journals", id);
-  if (rec && access !== null && !canEdit_(access, rec.meta.department)) fail_(403, "您沒有這個餐廳的編輯權限");
+  const before = findRec_("Journals", id);
+  if (before && access !== null && !canEdit_(access, before.meta.department)) fail_(403, "您沒有這個餐廳的編輯權限");
 
+  const uploaded = uploadNewPhotos_(journal);
+  lock_();
+  // 就算下面回 409，照片也先記下來：前端合併後重送時就不用再上傳一次
+  savePhotoIndex_(uploaded);
+  const rec = findRec_("Journals", id);
   const current = rec ? (rec.meta.version || 0) : null;
   // 有帶 baseVersion：雲端上已經是別的版本（被其他裝置改過）就回 409＋最新資料，讓前端合併後再存
   if (dto.baseVersion != null && rec && current !== Number(dto.baseVersion)) {
-    return { s: 409, b: { message: "這份週誌剛被其他裝置修改過", current: inflate_(rec, photoMap_([id])) } };
+    return { s: 409, b: { message: "這份週誌剛被其他裝置修改過", current: journalOut_(rec) } };
   }
   const now = nowIso_();
-  const journal = { id: id, department: department, periodStart: dto.periodStart, periodEnd: dto.periodEnd, categories: dto.categories || [] };
+  const oldPhotos = photoIdsOf_(rec && rec.data);
   writeJournal_(journal, (current || 0) + 1, rec ? rec.data.createdAt : now, now);
-  return ok_(inflate_(findRec_("Journals", id), photoMap_([id])));
+  const kept = photoIdsOf_(journal);
+  dropUnusedPhotos_(oldPhotos.filter((p) => kept.indexOf(p) < 0));
+  return ok_(journalOut_(findRec_("Journals", id)));
 }
 
 function deleteJournal_(c, rawId) {
@@ -789,8 +900,9 @@ function deleteJournal_(c, rawId) {
   const access = accessOf_(c.user);
   if (rec && access !== null && !canEdit_(access, rec.meta.department)) fail_(403, "您沒有這個餐廳的編輯權限");
   if (rec) {
+    const photos = photoIdsOf_(rec.data);
     remove_("Journals", id);
-    removeMany_("Photos", readAll_("Photos", true).filter((r) => r.meta.j === id).map((r) => r.key));
+    dropUnusedPhotos_(photos);
   }
   return noContent_();
 }
