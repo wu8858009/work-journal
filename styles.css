@@ -906,6 +906,10 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 }
 .photo-thumb-delete svg { width: 12px; height: 12px; }
 .photo-thumb-delete:hover { background: var(--c-danger); }
+@media (pointer: coarse) {
+  .photo-thumb-delete { width: 30px; height: 30px; }
+  .photo-thumb-delete svg { width: 16px; height: 16px; }
+}
 
 .photo-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .photo-add-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--c-border); }

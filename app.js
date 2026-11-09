@@ -213,6 +213,10 @@ async function fileToResizedDataUrl(file, maxDim = 1280, quality = 0.78) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+function alertUnreadablePhotos(count) {
+  alert(`有 ${count} 張照片無法讀取，可能是這台裝置不支援的格式（例如電腦上的 iPhone HEIC 檔）。請轉成 JPG 後再選一次。`);
+}
+
 function defaultCategories() {
   return [
     newCategory("已完成事項", true),
@@ -1021,6 +1025,7 @@ function renderSettings() {
 // 項目照片是編輯中的暫存狀態：開啟項目視窗時從該項目複製一份到這裡，使用者拍照/新增/
 // 編輯/刪除都只改這份暫存陣列，按「儲存」才會寫回項目物件並隨整份週誌一起送出。
 let itemModalPhotos = [];
+let itemModalNewId = ""; // 新項目的 Id，重試存檔時沿用，就算上一次其實已經存進去也不會多一筆
 
 // ---------------- 照片載入 ----------------
 // 週誌資料裡只有照片的 Id，內容在 Google 雲端硬碟，畫面要顯示時才抓。Id 對應的內容不會變
@@ -1166,6 +1171,7 @@ function openItemModal(catId, itemId) {
   modal.querySelector("#item-field-priority").checked = !!it.isPriority;
 
   itemModalPhotos = (it.photos || []).map((p) => ({ ...p }));
+  itemModalNewId = uid();
 
   const editable = canEditJournal(j);
   modal.querySelector("#item-modal-title").textContent = (isNew ? "新增項目" : "編輯項目") + (editable ? "" : "（唯讀）");
@@ -1250,20 +1256,57 @@ async function saveItemModal() {
   }
   const targetCat = j.categories.find((c) => c.id === targetCatId);
 
+  // 存檔失敗時要改回去。存檔途中可能合併別台裝置的修改，所以一律用 Id 重新找。
+  const findCat = (id) => j.categories.find((c) => c.id === id);
+  let undo;
   if (itemId) {
     const it = originalCat.items.find((i) => i.id === itemId);
+    const before = { ...it };
     Object.assign(it, data);
     if (targetCatId !== originalCatId) {
       originalCat.items = originalCat.items.filter((i) => i.id !== itemId);
       targetCat.items.push(it);
     }
+    undo = () => {
+      const home = j.categories.find((c) => c.items.some((i) => i.id === itemId));
+      if (!home) return;
+      const current = home.items.find((i) => i.id === itemId);
+      Object.assign(current, before);
+      if (home.id !== originalCatId && findCat(originalCatId)) {
+        home.items = home.items.filter((i) => i.id !== itemId);
+        findCat(originalCatId).items.push(current);
+      }
+    };
   } else {
-    targetCat.items.push({ id: uid(), ...data });
+    const newId = itemModalNewId;
+    targetCat.items.push({ id: newId, ...data });
+    undo = () => j.categories.forEach((c) => { c.items = c.items.filter((i) => i.id !== newId); });
   }
 
-  await persistCurrent();
-  closeModal(modal);
-  render();
+  await commitItemModal(modal, undo);
+}
+
+// 有照片時存檔要等幾秒：期間鎖住按鈕避免重複送出；失敗時把資料改回去並告訴使用者，視窗留著可以再按一次。
+async function commitItemModal(modal, undo) {
+  const buttons = [...modal.querySelectorAll("#item-save-btn, #item-delete-btn, #item-cancel-btn, #item-cancel-footer-btn")];
+  const saveBtn = modal.querySelector("#item-save-btn");
+  const saveLabel = saveBtn.textContent;
+  buttons.forEach((b) => { b.disabled = true; });
+  saveBtn.textContent = "儲存中…";
+  modal.dataset.busy = "1";
+  try {
+    await persistCurrent();
+    closeModal(modal);
+    render();
+  } catch (err) {
+    undo();
+    render();
+    alert(`儲存失敗：${err.message}\n輸入的內容還在，確認網路連線後可以再按一次。`);
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+    saveBtn.textContent = saveLabel;
+    delete modal.dataset.busy;
+  }
 }
 
 async function deleteItemModal() {
@@ -1274,10 +1317,13 @@ async function deleteItemModal() {
   const j = getCurrentJournal();
   if (!canEditJournal(j)) return;
   const cat = j.categories.find((c) => c.id === catId);
+  const index = cat.items.findIndex((i) => i.id === itemId);
+  const removed = cat.items[index];
   cat.items = cat.items.filter((i) => i.id !== itemId);
-  await persistCurrent();
-  closeModal(modal);
-  render();
+  await commitItemModal(modal, () => {
+    const home = j.categories.find((c) => c.id === catId); // 存檔途中合併過的話，cat 已經是舊物件
+    if (home && !home.items.some((i) => i.id === itemId)) home.items.splice(index, 0, removed);
+  });
 }
 
 // ---------------- Photo editor (draw / add text on a photo) ----------------
@@ -2796,7 +2842,13 @@ function wireEvents() {
     const file = e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    const dataUrl = await fileToResizedDataUrl(file);
+    let dataUrl;
+    try {
+      dataUrl = await fileToResizedDataUrl(file);
+    } catch (err) {
+      alertUnreadablePhotos(1);
+      return;
+    }
     openPhotoEditor(dataUrl, (finalDataUrl) => {
       itemModalPhotos.push({ id: uid(), dataUrl: finalDataUrl, createdAt: new Date().toISOString() });
       renderItemModalPhotos(true);
@@ -2806,11 +2858,17 @@ function wireEvents() {
   galleryInput.addEventListener("change", async (e) => {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
+    let unreadable = 0;
     for (const file of files) {
-      const dataUrl = await fileToResizedDataUrl(file);
-      itemModalPhotos.push({ id: uid(), dataUrl, createdAt: new Date().toISOString() });
+      try {
+        const dataUrl = await fileToResizedDataUrl(file);
+        itemModalPhotos.push({ id: uid(), dataUrl, createdAt: new Date().toISOString() });
+      } catch (err) {
+        unreadable++;
+      }
     }
     renderItemModalPhotos(true);
+    if (unreadable) alertUnreadablePhotos(unreadable);
   });
 
   document.getElementById("item-field-photos").addEventListener("click", async (e) => {
@@ -2931,7 +2989,7 @@ function wireEvents() {
 
   document.querySelectorAll(".modal-backdrop").forEach((bd) => {
     bd.addEventListener("click", (e) => {
-      if (e.target === bd) closeModal(bd);
+      if (e.target === bd && !bd.dataset.busy) closeModal(bd);
     });
   });
 }
