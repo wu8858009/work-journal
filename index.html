@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="./icon.svg" />
-<link rel="stylesheet" href="./styles.css?v=20261111a" />
+<link rel="stylesheet" href="./styles.css?v=20261111b" />
 <script>
   (function () {
     try {
@@ -109,6 +109,7 @@
       </div>
     </header>
 
+    <div class="offline-banner hidden" id="offline-banner" role="status"></div>
     <main id="view-root" class="view-root"></main>
 
     <button class="fab hidden" id="fab-add-item" title="新增項目">
@@ -154,6 +155,14 @@
         </button>
       </div>
       <div class="modal-body item-form">
+        <div class="form-field item-area-template" id="item-template-row">
+        <label class="field-label">常用範本</label>
+        <div class="template-row">
+          <select id="item-field-template" class="field-input field-select"></select>
+          <button type="button" class="btn btn-ghost template-save-btn" id="item-save-template-btn" title="把目前填的名稱、負責人、進度說明存成範本">存成範本</button>
+        </div>
+        </div>
+
         <div class="form-field item-area-category">
         <label class="field-label" id="item-field-category-label">類別</label>
         <select id="item-field-category" class="field-input field-select"></select>
@@ -161,7 +170,12 @@
 
         <div class="form-field item-area-name">
         <label class="field-label">工作項目</label>
-        <input type="text" id="item-field-name" class="field-input" placeholder="例如：碧水堂洗區水龍頭高壓軟管破管" />
+        <div class="field-with-mic">
+          <input type="text" id="item-field-name" class="field-input" placeholder="例如：碧水堂洗區水龍頭高壓軟管破管" />
+          <button type="button" class="mic-btn hidden" data-voice-for="item-field-name" title="用說的輸入" aria-label="語音輸入">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         </div>
 
         <div class="form-field item-area-assignee">
@@ -171,7 +185,12 @@
 
         <div class="form-field item-area-progress">
         <label class="field-label">目前進度說明</label>
-        <textarea id="item-field-progress" class="field-input field-textarea" placeholder="例如：已聯絡廠商報價中"></textarea>
+        <div class="field-with-mic">
+          <textarea id="item-field-progress" class="field-input field-textarea" placeholder="例如：已聯絡廠商報價中"></textarea>
+          <button type="button" class="mic-btn hidden" data-voice-for="item-field-progress" title="用說的輸入" aria-label="語音輸入">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         </div>
 
         <div class="form-field item-area-date">
@@ -201,6 +220,11 @@
           <span>需優先處理</span>
         </label>
 
+        <div class="form-field item-area-equipment">
+        <label class="field-label">設備（選填）<a href="#" class="item-equipment-link hidden" id="item-equipment-link">查看維修履歷 ›</a></label>
+        <select id="item-field-equipment" class="field-input field-select"></select>
+        </div>
+
         <div class="form-field item-area-photos">
         <label class="field-label">照片</label>
         <div class="photo-grid" id="item-field-photos"></div>
@@ -213,9 +237,18 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m5 17 5-5 3.5 3.5L17 12l3 3" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>從相簿新增</span>
           </button>
+          <label class="checkbox-row photo-stamp-row" title="新加入的照片右下角加上日期時間和餐廳名稱">
+            <input type="checkbox" id="item-photo-stamp" />
+            <span>加日期浮水印</span>
+          </label>
           <input type="file" id="item-photo-camera-input" accept="image/*" capture="environment" class="hidden" />
           <input type="file" id="item-photo-gallery-input" accept="image/*" multiple class="hidden" />
         </div>
+        </div>
+
+        <div class="form-field item-area-history hidden" id="item-history">
+        <button type="button" class="btn btn-ghost item-history-btn" id="item-history-btn">查看修改紀錄</button>
+        <div class="item-history-list hidden" id="item-history-list"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -320,6 +353,30 @@
         <div class="modal-footer-right">
           <button class="btn btn-ghost" id="pdf-share-cancel-footer-btn">取消</button>
           <button class="btn btn-primary" id="pdf-share-btn">儲存／分享</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 設備 QR Code -->
+  <div class="modal-backdrop" id="modal-qr">
+    <div class="modal-sheet modal-sheet-sm">
+      <div class="modal-header">
+        <h3>設備 QR Code</h3>
+        <button class="icon-btn" id="qr-close-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body qr-body">
+        <div class="qr-box" id="qr-box"></div>
+        <div class="qr-title" id="qr-title"></div>
+        <div class="qr-sub" id="qr-sub"></div>
+        <p class="settings-note">印出來貼在設備上，用手機相機掃描就會打開這台設備的維修履歷。</p>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-footer-right">
+          <button class="btn btn-ghost" id="qr-close-footer-btn">關閉</button>
+          <button class="btn btn-primary" id="qr-save-btn">儲存圖片</button>
         </div>
       </div>
     </div>
@@ -503,8 +560,10 @@
 
   <div id="print-area" class="print-area"></div>
 
-  <script src="./config.js?v=20261111a"></script>
-  <script src="./data.js?v=20261111a"></script>
-  <script src="./app.js?v=20261111a"></script>
+  <script src="./config.js?v=20261111b"></script>
+  <script src="./data.js?v=20261111b"></script>
+  <script src="./app.js?v=20261111b"></script>
+  <script src="./features.js?v=20261111b"></script>
+  <script src="./offline.js?v=20261111b"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const CACHE_NAME = "wj-cache-v11";
+const CACHE_NAME = "wj-cache-v13";
 const PHOTO_CACHE_NAME = "wj-photos"; // app.js 存照片用的，更新版本時不能清掉
 const ASSETS = [
   "./",
@@ -7,6 +7,8 @@ const ASSETS = [
   "./app.js",
   "./config.js",
   "./data.js",
+  "./features.js",
+  "./offline.js",
   "./manifest.json",
   "./icon.svg",
 ];

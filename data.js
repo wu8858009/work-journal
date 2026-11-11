@@ -10,15 +10,25 @@ const CLOUD_URL = (window.WJ_CLOUD_URL || "").trim();
 // 送出一個 API 請求，回傳 { status, data }；連不上（或雲端回了不是 JSON 的錯誤頁）就丟出例外。
 // Apps Script 只能用 POST 收、也無法回傳 HTTP 狀態碼，所以把方法、路徑、權杖包進內容裡，
 // 狀態碼放在回應的 s 欄位；Content-Type 用 text/plain 才不會觸發瀏覽器的 CORS 預檢。
+// 訊號很差時請求可能一直卡著：太久沒回應就當成沒網路（存照片可能要十幾秒，所以放寬到 60 秒）。
+const REQUEST_TIMEOUT_MS = 60000;
+
 async function apiRequest(method, path, body, token) {
   if (CLOUD_URL) {
-    const res = await fetch(CLOUD_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ m: method, p: path, t: token || "", b: body === undefined ? null : body }),
-    });
-    const envelope = await res.json();
-    return { status: envelope.s, data: envelope.b };
+    const ctrl = window.AbortController ? new AbortController() : null;
+    const timer = ctrl && setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(CLOUD_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ m: method, p: path, t: token || "", b: body === undefined ? null : body }),
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      const envelope = await res.json();
+      return { status: envelope.s, data: envelope.b };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -245,7 +255,7 @@ async function apiFetch(path, options = {}) {
   // back to the login screen seconds after a successful login.
   const method = (options.method || "GET").toUpperCase();
   const isRetryable = method === "GET";
-  const maxAttempts = isRetryable ? 5 : 1;
+  const maxAttempts = isRetryable && navigator.onLine !== false ? 5 : 1;
   const retryDelayMs = 3000;
 
   let res = null;
@@ -256,9 +266,14 @@ async function apiFetch(path, options = {}) {
       res = null;
     }
     if (res && res.status < 500) break;
+    if (navigator.onLine === false) break;
     if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, retryDelayMs));
   }
-  if (!res) throw new Error("伺服器目前無法連線，請稍後再試");
+  if (!res) {
+    const err = new Error("伺服器目前無法連線，請稍後再試");
+    err.offline = true; // 沒網路：週誌可以先存在裝置上
+    throw err;
+  }
 
   if (res.status === 401) {
     Auth.logout();
@@ -435,6 +450,37 @@ const Store = {
       method: "PUT",
       body: JSON.stringify(schedule),
     });
+  },
+
+  // ---- 常用項目範本、設備清單（每間餐廳一份） ----
+  async getItemTemplates(department) {
+    return apiFetch(`/item-templates/${encodeURIComponent(department)}`);
+  },
+
+  async saveItemTemplates(department, templates) {
+    return apiFetch(`/item-templates/${encodeURIComponent(department)}`, { method: "PUT", body: JSON.stringify({ templates }) });
+  },
+
+  async getEquipment(department) {
+    return apiFetch(`/equipment/${encodeURIComponent(department)}`);
+  },
+
+  async saveEquipment(department, equipment) {
+    return apiFetch(`/equipment/${encodeURIComponent(department)}`, { method: "PUT", body: JSON.stringify({ equipment }) });
+  },
+
+  // ---- 項目修改歷程（key = 項目的 originId 或 id） ----
+  async getItemHistory(key) {
+    return apiFetch(`/item-history/${encodeURIComponent(key)}`);
+  },
+
+  // ---- 備份（管理員） ----
+  async getBackupStatus() {
+    return apiFetch("/backup");
+  },
+
+  async backupNow() {
+    return apiFetch("/backup", { method: "POST" });
   },
 };
 

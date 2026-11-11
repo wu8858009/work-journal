@@ -38,6 +38,7 @@ const ICONS = {
   flag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 21V4a1 1 0 0 1 1-1h11l-2.5 4.5L19 12H6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   timer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="8.5"/><path d="M12 9v4l2.8 1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 1.5h6" stroke-linecap="round"/></svg>`,
   bulb: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 21h4" stroke-linecap="round"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2Z" stroke-linejoin="round"/></svg>`,
+  qr: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/><rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v0M14.5 20.5h2.5M20 17.5v3" stroke-linecap="round"/></svg>`,
 };
 
 const state = {
@@ -59,6 +60,8 @@ const state = {
   overviewMaintenance: null,
   overviewMaintenanceLoading: false,
   overviewExport: null,
+  equipmentDetailId: null, // 設備頁：null = 清單，否則是那台設備的履歷
+  backupStatus: undefined, // 設定頁備份區：undefined = 還沒抓
 };
 
 const AUDIT_ACTION_LABELS = {
@@ -170,7 +173,7 @@ function newItem() {
 // 讀取使用者選的照片檔案，縮小到最長邊 maxDim 並轉成 JPEG data URL，避免整份週誌（存成
 // 單一 Mongo 文件）因為塞進太多原圖而爆掉。優先用 createImageBitmap 讀取，讓瀏覽器依照
 // EXIF 方向自動轉正手機拍的照片；不支援的環境退回用 <img> 讀取。
-async function fileToResizedDataUrl(file, maxDim = 1280, quality = 0.78) {
+async function fileToResizedDataUrl(file, maxDim = 1280, quality = 0.78, stampText = "") {
   let source;
   let width;
   let height;
@@ -208,9 +211,39 @@ async function fileToResizedDataUrl(file, maxDim = 1280, quality = 0.78) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  canvas.getContext("2d").drawImage(source, 0, 0, width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(source, 0, 0, width, height);
   if (source.close) source.close();
+  if (stampText) drawPhotoStamp(ctx, width, height, stampText);
   return canvas.toDataURL("image/jpeg", quality);
+}
+
+// 照片右下角的日期浮水印（施工佐證用）：半透明黑底白字，字級跟著照片大小。
+function drawPhotoStamp(ctx, width, height, text) {
+  const size = Math.max(14, Math.round(Math.min(width, height) / 26));
+  const pad = Math.round(size * 0.45);
+  ctx.font = `600 ${size}px -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif`;
+  ctx.textBaseline = "bottom";
+  const w = ctx.measureText(text).width;
+  const x = width - w - pad * 2 - size * 0.5;
+  const y = height - size * 0.5;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.fillRect(x - pad, y - size - pad, w + pad * 2, size + pad * 1.6);
+  ctx.fillStyle = "#fff";
+  ctx.fillText(text, x, y);
+}
+
+const PHOTO_STAMP_KEY = "wj_photo_stamp";
+function photoStampEnabled() {
+  try { return localStorage.getItem(PHOTO_STAMP_KEY) !== "off"; } catch (e) { return true; }
+}
+
+// 浮水印文字：民國日期 時:分 · 餐廳。相簿的照片用檔案時間（通常就是拍攝時間），拍照用現在時間。
+function photoStampText(when) {
+  if (!photoStampEnabled()) return "";
+  const d = when ? new Date(when) : new Date();
+  const dept = (getCurrentJournal() || {}).department || Auth.getCurrentDepartment() || "";
+  return formatDateTime(d.toISOString()) + (dept ? ` · ${dept}` : "");
 }
 
 function alertUnreadablePhotos(count) {
@@ -353,6 +386,9 @@ function render() {
   } else if (state.view === "maintenance") {
     headerSub.textContent = "保養排程";
     root.innerHTML = renderMaintenance();
+  } else if (state.view === "equipment") {
+    headerSub.textContent = "設備維修履歷";
+    root.innerHTML = renderEquipment();
   } else {
     headerSub.textContent = "設定";
     root.innerHTML = renderSettings();
@@ -403,6 +439,7 @@ function renderEditor() {
   const departmentOptions = Array.from(new Set([j.department, ...myDepartmentNames].filter(Boolean)));
 
   return `
+  ${weeklyReminderHtml()}
   ${!editable ? `<p class="settings-note">此餐廳僅開放查看，無法編輯。</p>` : ""}
   <div class="journal-meta card">
     <div class="meta-row">
@@ -442,6 +479,7 @@ function itemRowHtml(cat, it, idx) {
       <div class="item-meta">
         ${it.assignee ? `<span class="item-assignee">負責人：${escapeHtml(it.assignee)}</span>` : ""}
         ${it.expectedDate ? `<span class="item-date ${urgencyClass}">預計 ${toROC(it.expectedDate)}${urgencyLabel}</span>` : ""}
+        ${it.equipmentId && equipmentName((getCurrentJournal() || {}).department, it.equipmentId) ? `<span class="item-equipment">設備：${escapeHtml(equipmentName(getCurrentJournal().department, it.equipmentId))}</span>` : ""}
       </div>
     </div>
     <div class="item-right">
@@ -999,6 +1037,7 @@ function renderSettings() {
       <div class="admin-stat-tile ${state.passwordResetRequests.length ? "admin-stat-tile-warning" : ""}"><span class="admin-stat-value">${state.passwordResetRequests.length}</span><span class="admin-stat-label">待處理密碼申請</span></div>
     </div>
     ${onlineUsersHtml}
+    ${renderBackupCard()}
     ${companySettingsHtml}
     ${usersHtml}
     ${departmentsHtml}
@@ -1015,6 +1054,7 @@ function renderSettings() {
     ${currentDepartmentHtml}
     <button class="btn btn-ghost logout-btn" data-action="logout">登出</button>
   </div>
+  ${renderSettingsExtras()}
   ${adminPanelHtml}
   <p class="settings-note">資料儲存於公司後端資料庫，登入後可跨裝置同步。</p>
   `;
@@ -1181,6 +1221,7 @@ function openItemModal(catId, itemId) {
   modal.querySelector("#item-save-btn").classList.toggle("hidden", !editable);
   modal.querySelector(".photo-add-row").classList.toggle("hidden", !editable);
   renderItemModalPhotos(editable);
+  setupItemModalExtras(j, it, isNew, editable);
   applyPercentCategoryLock(modal);
   if (!editable) modal.querySelector("#item-field-category").disabled = true;
   showModal(modal);
@@ -1236,6 +1277,7 @@ async function saveItemModal() {
     expectedDate: modal.querySelector("#item-field-date").value,
     percent: Math.max(0, Math.min(100, Number(modal.querySelector("#item-field-percent").value) || 0)),
     isPriority: modal.querySelector("#item-field-priority").checked,
+    equipmentId: itemModalEquipmentId(),
     photos: itemModalPhotos,
   };
 
@@ -1974,7 +2016,7 @@ async function handleDuplicateJournal(id) {
       isCompletedSection: cat.isCompletedSection,
       items: cat.isCompletedSection
         ? []
-        : cat.items.filter((i) => (Number(i.percent) || 0) < 100).map((i) => ({ ...i, id: uid(), homeCategoryId: newCatId })),
+        : cat.items.filter((i) => (Number(i.percent) || 0) < 100).map((i) => ({ ...i, id: uid(), originId: i.originId || i.id, homeCategoryId: newCatId })),
     };
   });
 
@@ -2721,6 +2763,7 @@ function prepareMaintenancePrint() {
 
 function wireEvents() {
   wirePhotoViewerEvents();
+  wireFeatureEvents();
 
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -2837,6 +2880,11 @@ function wireEvents() {
   const galleryInput = document.getElementById("item-photo-gallery-input");
   document.getElementById("item-photo-camera-btn").addEventListener("click", () => cameraInput.click());
   document.getElementById("item-photo-gallery-btn").addEventListener("click", () => galleryInput.click());
+  const stampToggle = document.getElementById("item-photo-stamp");
+  stampToggle.checked = photoStampEnabled();
+  stampToggle.addEventListener("change", () => {
+    try { localStorage.setItem(PHOTO_STAMP_KEY, stampToggle.checked ? "on" : "off"); } catch (e) {}
+  });
 
   cameraInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
@@ -2844,7 +2892,7 @@ function wireEvents() {
     if (!file) return;
     let dataUrl;
     try {
-      dataUrl = await fileToResizedDataUrl(file);
+      dataUrl = await fileToResizedDataUrl(file, undefined, undefined, photoStampText());
     } catch (err) {
       alertUnreadablePhotos(1);
       return;
@@ -2861,7 +2909,7 @@ function wireEvents() {
     let unreadable = 0;
     for (const file of files) {
       try {
-        const dataUrl = await fileToResizedDataUrl(file);
+        const dataUrl = await fileToResizedDataUrl(file, undefined, undefined, photoStampText(file.lastModified));
         itemModalPhotos.push({ id: uid(), dataUrl, createdAt: new Date().toISOString() });
       } catch (err) {
         unreadable++;
@@ -3027,18 +3075,34 @@ async function startApp() {
   // 各項資料互不相依，同時抓：雲端每個請求約 1～2 秒，一個接一個抓要等十幾秒。
   const dept = Auth.getCurrentDepartment();
   const isAdmin = Auth.isAdmin();
-  const [settings, journals, users, resetRequests, auditLogs, departments, lightTimer, maintenanceSchedule] = await Promise.all([
-    Store.getSettings(),
-    Store.getAllJournals(),
-    isAdmin ? Store.getUsers() : [],
-    isAdmin ? Store.getPasswordResetRequests() : [],
-    isAdmin ? Store.getAuditLogs() : [],
-    isAdmin ? Store.getDepartments() : [],
-    dept ? Store.getLightTimer(dept) : { department: "", rows: [] },
-    dept ? Store.getMaintenanceSchedule(dept) : { department: "", tasks: [] },
-  ]);
+  const snapshot = await readOfflineSnapshot();
+  let loaded;
+  let fromSnapshot = false;
+  try {
+    loaded = await Promise.all([
+      Store.getSettings(),
+      Store.getAllJournals(),
+      isAdmin ? Store.getUsers() : [],
+      isAdmin ? Store.getPasswordResetRequests() : [],
+      isAdmin ? Store.getAuditLogs() : [],
+      isAdmin ? Store.getDepartments() : [],
+      dept ? Store.getLightTimer(dept) : { department: "", rows: [] },
+      dept ? Store.getMaintenanceSchedule(dept) : { department: "", tasks: [] },
+    ]);
+  } catch (err) {
+    // 沒網路：用上次存在這台裝置上的資料打開
+    if (!isOfflineError(err) || !snapshot) throw err;
+    fromSnapshot = true;
+    loaded = [snapshot.settings, snapshot.journals, [], [], [], [], snapshot.lightTimer || { department: "", rows: [] },
+      snapshot.maintenanceSchedule || { department: "", tasks: [] }];
+  }
+  const [settings, journals, users, resetRequests, auditLogs, departments, lightTimer, maintenanceSchedule] = loaded;
   state.settings = settings;
-  setJournals(journals);
+  if (fromSnapshot) loadFromSnapshot(snapshot);
+  else {
+    setJournals(journals);
+    restorePendingFromSnapshot(snapshot);
+  }
   state.users = users;
   state.passwordResetRequests = resetRequests;
   state.auditLogs = auditLogs;
@@ -3060,6 +3124,12 @@ async function startApp() {
   render();
   if (state.view === "maintenance") maybeShowMaintenanceReminder();
   startPresence();
+  // 先抓設備清單，週誌卡片才顯示得出設備名稱
+  if (dept && !fromSnapshot) loadDeptList("equipment", dept).then(() => { if (state.view === "editor") render(); }).catch(() => {});
+  openDeepLinkIfAny();
+  renderOfflineBanner();
+  if (!fromSnapshot && offline.pending.size) flushPendingSaves().then((done) => { if (done) syncFromServer(); });
+  persistOffline();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
@@ -3104,9 +3174,20 @@ function rememberBase(j) {
 }
 
 function setJournals(list) {
+  // 還沒上傳的修改（沒網路時存的）不能被伺服器上的舊資料蓋掉
+  const keep = state.journals.filter((j) => offline.pending.has(j.id));
+  const keepBases = keep.map((j) => journalBases.get(j.id));
   state.journals = list;
   journalBases.clear();
   list.forEach(rememberBase);
+  keep.forEach((j, i) => {
+    const at = state.journals.findIndex((x) => x.id === j.id);
+    if (at >= 0) state.journals[at] = j;
+    else state.journals.push(j);
+    if (keepBases[i]) journalBases.set(j.id, keepBases[i]);
+    else journalBases.delete(j.id);
+  });
+  persistOffline();
 }
 
 // 換掉物件內容但保留同一個參考，畫面上其他地方拿著的 j 也會跟著是最新的。
@@ -3181,10 +3262,17 @@ async function saveJournalNow(id) {
       try {
         const saved = await Store.saveJournal(local, base ? base.version || 0 : 0);
         local.version = saved.version;
+        local.updatedAt = saved.updatedAt;
         settleSavedPhotos(local, saved);
         rememberBase(saved);
-        return;
+        markSaved(id);
+        return "saved";
       } catch (err) {
+        // 沒網路：修改留在這台裝置，恢復網路後 flushPendingSaves() 會再送
+        if (isOfflineError(err)) {
+          markPendingSave(id);
+          return "queued";
+        }
         if (err.status !== 409 || !err.body || !err.body.current) throw err;
         const server = err.body.current;
         replaceContents(local, mergeJournal(base, local, server));
@@ -3215,9 +3303,13 @@ function renderAfterSync() {
 
 async function syncFromServer() {
   if (syncBusy || savingCount > 0 || !Auth.isLoggedIn() || document.hidden) return;
+  // 先把沒網路時存的修改送上去；還送不出去就先不同步，免得被伺服器的舊資料蓋掉
+  if (offline.pending.size && !(await flushPendingSaves())) return;
+  if (syncBusy || savingCount > 0) return;
   syncBusy = true;
   try {
     const versions = await Store.getJournalVersions();
+    if (offline.active) setOfflineActive(false);
     const remote = new Map(versions.map((v) => [v.id, v]));
     let changed = false;
 
@@ -3250,9 +3342,11 @@ async function syncFromServer() {
         state.currentId = fallback ? fallback.id : null;
       }
       renderAfterSync();
+      persistOffline();
     }
-  } catch {
+  } catch (err) {
     // 沒網路或伺服器在睡覺：下一輪再試
+    if (isOfflineError(err)) setOfflineActive(true);
   } finally {
     syncBusy = false;
   }
@@ -3347,6 +3441,8 @@ function renderOnlineUsersRows() {
 }
 
 function handleLogout() {
+  if (offline.pending.size && !confirm(`還有 ${offline.pending.size} 份週誌的修改沒有上傳（目前沒有網路）。\n現在登出，這些修改會遺失。確定要登出嗎？`)) return;
+  clearOfflineSnapshot();
   // 先通知伺服器「我下線了」（需要還帶著 token，所以要在 Auth.logout() 之前），失敗也沒關係。
   Store.presenceSignOff().catch(() => {});
   stopPresence();

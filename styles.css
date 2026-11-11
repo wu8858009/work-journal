@@ -844,11 +844,14 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
     display: grid;
     grid-template-columns: 1fr 1fr;
     grid-template-areas:
-      "category name"
-      "assignee date"
-      "progress progress"
-      "percent  priority"
-      "photos   photos";
+      "template  template"
+      "category  name"
+      "assignee  date"
+      "progress  progress"
+      "percent   priority"
+      "equipment equipment"
+      "photos    photos"
+      "history   history";
     gap: 14px 18px;
   }
   .item-form > .form-field:not(:first-child) { margin-top: 0; }
@@ -860,7 +863,83 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
   .item-area-percent { grid-area: percent; }
   .item-area-priority { grid-area: priority; align-self: end; border-bottom: none; padding: 0 0 11px; }
   .item-area-photos { grid-area: photos; }
+  .item-area-template { grid-area: template; }
+  .item-area-equipment { grid-area: equipment; }
+  .item-area-history { grid-area: history; }
 }
+
+/* ---------- 常用範本、設備、修改紀錄、語音輸入 ---------- */
+.template-row { display: flex; gap: 8px; }
+.template-row .field-input { flex: 1; min-width: 0; }
+.template-save-btn { flex-shrink: 0; border: 1px solid var(--c-border); white-space: nowrap; }
+.item-equipment-link { float: right; font-weight: 500; color: var(--c-accent); text-decoration: none; }
+.item-equipment { font-size: 11.5px; color: var(--c-text-soft); font-weight: 600; }
+.item-history-btn { border: 1px solid var(--c-border); }
+.item-history-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.history-entry { border-left: 3px solid var(--c-accent-2); padding: 4px 0 4px 10px; }
+.history-entry-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--c-text-faint); }
+.history-entry-change { font-size: 13px; color: var(--c-text); line-height: 1.5; word-break: break-word; }
+
+.field-with-mic { position: relative; }
+.field-with-mic .field-input { padding-right: 44px; }
+.mic-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--c-text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.mic-btn svg { width: 20px; height: 20px; }
+.mic-btn.hidden { display: none; }
+.mic-btn.mic-listening { background: var(--c-danger); color: #fff; animation: mic-pulse 1.2s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.25); } }
+
+.weekly-reminder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--c-warning-bg);
+  border: 1px solid var(--c-warning);
+  color: var(--c-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.weekly-reminder > span { display: flex; align-items: center; gap: 8px; }
+.weekly-reminder svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--c-warning); }
+.weekly-reminder .btn svg { color: inherit; }
+
+.equipment-row { cursor: pointer; }
+.equipment-row .user-row-name svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
+.equipment-row .user-row-actions svg { width: 18px; height: 18px; color: var(--c-text-faint); }
+.equipment-back { margin: -4px 0 6px -8px; }
+.equipment-add-item { margin-top: 10px; }
+.equipment-record { padding: 10px 0; border-bottom: 1px solid var(--c-border); cursor: pointer; }
+.equipment-record:last-child { border-bottom: none; }
+.equipment-record-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.equipment-record-week { font-size: 12px; color: var(--c-text-faint); }
+.equipment-record-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.equipment-record-photos .item-photo-thumb { width: 56px; height: 56px; }
+
+.qr-body { text-align: center; }
+.qr-box { width: 220px; height: 220px; margin: 0 auto; background: #fff; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; }
+.qr-box svg { width: 100%; height: 100%; }
+.qr-title { margin-top: 10px; font-size: 17px; font-weight: 700; }
+.qr-sub { font-size: 13px; color: var(--c-text-soft); margin-bottom: 6px; }
+.backup-warn { color: var(--c-warning); font-weight: 600; }
+.backup-file small { color: var(--c-text-faint); word-break: break-all; }
 
 .field-password-wrap { position: relative; }
 .field-password-wrap .field-input { padding-right: 42px; }
@@ -914,6 +993,7 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .photo-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .photo-add-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--c-border); }
 .photo-add-btn svg { width: 16px; height: 16px; }
+.photo-stamp-row { margin: 0; font-size: 13px; color: var(--c-text-soft); align-self: center; }
 
 /* ---------- Photo editor ---------- */
 
@@ -1326,3 +1406,19 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .online-user-self { font-weight: 400; color: var(--c-text-faint); margin-left: 4px; }
 .online-user-meta { font-size: 12px; color: var(--c-text-soft); margin-top: 2px; }
 .online-user-ago { font-size: 12px; color: var(--c-text-faint); white-space: nowrap; }
+
+/* ---------- 離線提示 ---------- */
+.offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 8px 16px;
+  background: var(--c-warning);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.5;
+}
+.offline-banner.hidden { display: none; }
+.offline-banner-uploading { background: var(--c-accent); }
