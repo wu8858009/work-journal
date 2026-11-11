@@ -78,6 +78,7 @@ const ROUTES = [
   ["PUT", /^\/journals\/([^/]+)$/, "user", (c) => upsertJournal_(c, c.args[0])],
   ["DELETE", /^\/journals\/([^/]+)$/, "user", (c) => deleteJournal_(c, c.args[0])],
   ["POST", /^\/photos\/batch$/, "user", (c) => getPhotos_(c)],
+  ["GET", /^\/item-history\/([^/]+)$/, "user", (c) => getItemHistory_(c, c.args[0])],
 
   ["GET", /^\/settings$/, "user", () => ok_(getSettings_())],
   ["PUT", /^\/settings$/, "admin", (c) => saveSettings_(c)],
@@ -105,6 +106,13 @@ const ROUTES = [
   ["PUT", /^\/light-timers\/(.+)$/, "user", (c) => saveDeptTable_(c, "LightTimers", "rows", c.args[0])],
   ["GET", /^\/maintenance-schedules\/(.+)$/, "user", (c) => getDeptTable_(c, "Maintenance", "tasks", c.args[0])],
   ["PUT", /^\/maintenance-schedules\/(.+)$/, "user", (c) => saveDeptTable_(c, "Maintenance", "tasks", c.args[0])],
+  ["GET", /^\/item-templates\/(.+)$/, "user", (c) => getDeptTable_(c, "Templates", "templates", c.args[0])],
+  ["PUT", /^\/item-templates\/(.+)$/, "user", (c) => saveDeptTable_(c, "Templates", "templates", c.args[0])],
+  ["GET", /^\/equipment\/(.+)$/, "user", (c) => getDeptTable_(c, "Equipment", "equipment", c.args[0])],
+  ["PUT", /^\/equipment\/(.+)$/, "user", (c) => saveDeptTable_(c, "Equipment", "equipment", c.args[0])],
+
+  ["GET", /^\/backup$/, "admin", () => ok_(backupStatus_())],
+  ["POST", /^\/backup$/, "admin", () => ok_(backupNow_())],
 ];
 
 function route_(method, path, body, token) {
@@ -891,6 +899,7 @@ function upsertJournal_(c, rawId) {
   }
   const now = nowIso_();
   const oldPhotos = photoIdsOf_(rec && rec.data);
+  recordItemHistory_(rec && rec.data, journal, c.user, department, now);
   writeJournal_(journal, (current || 0) + 1, rec ? rec.data.createdAt : now, now);
   const kept = photoIdsOf_(journal);
   dropUnusedPhotos_(oldPhotos.filter((p) => kept.indexOf(p) < 0));
@@ -910,6 +919,170 @@ function deleteJournal_(c, rawId) {
     dropUnusedPhotos_(photos);
   }
   return noContent_();
+}
+
+// ---------------------------------------------------------------- 項目修改歷程
+// 每次存週誌時比對前後差異，依項目記在 ItemHistory（一個項目一列，最多留 HISTORY_KEEP 筆）。
+// 複製到下一週的項目帶著 originId，歷程會接續下去。
+
+const HISTORY_KEEP = 100;
+const HISTORY_FIELDS = ["item", "assignee", "progress", "expectedDate", "percent", "isPriority", "equipmentId"];
+
+function itemsById_(journal) {
+  const out = {};
+  ((journal && journal.categories) || []).forEach((cat) => (cat.items || []).forEach((it) => {
+    out[it.id] = { it: it, cat: cat.isCompletedSection ? "已完成事項" : cat.name };
+  }));
+  return out;
+}
+
+function historyKey_(it) { return String(it.originId || it.id); }
+
+function recordItemHistory_(oldJournal, journal, user, department, at) {
+  const before = itemsById_(oldJournal), after = itemsById_(journal);
+  const by = user.displayName || user.username;
+  const entries = [];
+  Object.keys(after).forEach((id) => {
+    const now = after[id], prev = before[id];
+    if (!prev) {
+      // 新的一週複製過來的項目不算新增
+      if (!oldJournal && now.it.originId) return;
+      entries.push({ key: historyKey_(now.it), name: now.it.item, changes: [["created", "", now.cat]] });
+      return;
+    }
+    const changes = [];
+    HISTORY_FIELDS.forEach((f) => {
+      const a = prev.it[f] == null ? "" : prev.it[f], b = now.it[f] == null ? "" : now.it[f];
+      if (String(a) !== String(b)) changes.push([f, a, b]);
+    });
+    if (prev.cat !== now.cat) changes.push(["category", prev.cat, now.cat]);
+    const idsA = (prev.it.photos || []).map((p) => p.id).join(","), idsB = (now.it.photos || []).map((p) => p.id).join(",");
+    if (idsA !== idsB) changes.push(["photos", (prev.it.photos || []).length, (now.it.photos || []).length]);
+    if (changes.length) entries.push({ key: historyKey_(now.it), name: now.it.item, changes: changes });
+  });
+  Object.keys(before).forEach((id) => {
+    if (!after[id]) entries.push({ key: historyKey_(before[id].it), name: before[id].it.item, changes: [["deleted", before[id].cat, ""]] });
+  });
+  entries.forEach((e) => {
+    const rec = findRec_("ItemHistory", e.key);
+    const doc = rec ? rec.data : { department: department, entries: [] };
+    doc.department = department;
+    doc.entries.unshift({ at: at, by: by, period: journal.periodStart, name: e.name, changes: e.changes });
+    if (doc.entries.length > HISTORY_KEEP) doc.entries.length = HISTORY_KEEP;
+    put_("ItemHistory", e.key, doc, { department: department });
+  });
+}
+
+function getItemHistory_(c, key) {
+  const rec = findRec_("ItemHistory", key);
+  if (!rec) return ok_({ entries: [] });
+  if (!canSee_(accessOf_(c.user), rec.meta.department)) fail_(403, "您沒有這個餐廳的權限");
+  return ok_({ entries: rec.data.entries || [] });
+}
+
+// ---------------------------------------------------------------- 備份
+// 整份試算表每天匯出成一個 JSON 檔放在雲端硬碟「工作週誌 備份」資料夾，保留最新 BACKUP_KEEP 份。
+// 第一次使用：在 Apps Script 編輯器執行 installDailyBackup（會要求授權），之後每天凌晨自動備份。
+// 還原：在編輯器執行 restoreBackup("備份檔的 Id")，Id 可在設定頁的備份區看到。
+
+const BACKUP_FOLDER = "工作週誌 備份";
+const BACKUP_KEEP = 30;
+
+function backupFolderId_() {
+  const props = PropertiesService.getScriptProperties();
+  let id = props.getProperty("backupFolderId");
+  if (!id) {
+    id = driveCreate_(DRIVE_FILES + "?fields=id", { contentType: "application/json",
+      payload: JSON.stringify({ name: BACKUP_FOLDER, mimeType: "application/vnd.google-apps.folder" }) });
+    props.setProperty("backupFolderId", id);
+  }
+  return id;
+}
+
+function backupNow_() {
+  lock_();
+  let snapshot;
+  try {
+    snapshot = { app: "WorkJournal", createdAt: nowIso_(), sheets: {} };
+    book_().getSheets().forEach((s) => {
+      const n = s.getLastRow(), m = s.getLastColumn();
+      snapshot.sheets[s.getName()] = n && m ? s.getRange(1, 1, n, m).getValues() : [];
+    });
+  } finally {
+    releaseLock_();
+  }
+  const json = JSON.stringify(snapshot);
+  const name = "工作週誌備份 " + Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HHmmss") + ".json";
+  const folder = backupFolderId_();
+  const boundary = "wjbackup" + Utilities.getUuid();
+  const body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify({ name: name, parents: [folder], mimeType: "application/json" }) +
+    "\r\n--" + boundary + "\r\nContent-Type: application/json\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
+    Utilities.base64Encode(json, Utilities.Charset.UTF_8) + "\r\n--" + boundary + "--";
+  const fileId = driveCreate_(DRIVE_UPLOAD, { contentType: "multipart/related; boundary=" + boundary, payload: body });
+  // 只留最新的 BACKUP_KEEP 份，舊的丟垃圾桶
+  const list = UrlFetchApp.fetch(DRIVE_FILES + "?q=" + encodeURIComponent("'" + folder + "' in parents and trashed=false") +
+    "&orderBy=createdTime%20desc&pageSize=200&fields=files(id%2Cname%2CcreatedTime)", driveOptions_({}));
+  const files = list.getResponseCode() < 300 ? JSON.parse(list.getContentText()).files || [] : [];
+  const old = files.slice(BACKUP_KEEP);
+  if (old.length) {
+    UrlFetchApp.fetchAll(old.map((f) => driveOptions_({ url: DRIVE_FILES + "/" + f.id, method: "patch",
+      contentType: "application/json", payload: JSON.stringify({ trashed: true }) })));
+  }
+  const info = { at: snapshot.createdAt, name: name, fileId: fileId, size: json.length, kept: Math.min(files.length, BACKUP_KEEP) };
+  PropertiesService.getScriptProperties().setProperty("lastBackup", JSON.stringify(info));
+  return info;
+}
+
+function backupStatus_() {
+  const raw = PropertiesService.getScriptProperties().getProperty("lastBackup");
+  let scheduled = null;
+  try {
+    scheduled = ScriptApp.getProjectTriggers().some((t) => t.getHandlerFunction() === "dailyBackup");
+  } catch (e) {
+    scheduled = null; // 還沒授權觸發條件
+  }
+  return { last: raw ? JSON.parse(raw) : null, scheduled: scheduled, keep: BACKUP_KEEP };
+}
+
+// 每天的自動備份（由觸發條件呼叫）
+function dailyBackup() {
+  const info = backupNow_();
+  console.log("已備份 " + info.name);
+}
+
+// 在 Apps Script 編輯器執行一次：建立每天凌晨 3 點的自動備份，並立刻先備份一次
+function installDailyBackup() {
+  ScriptApp.getProjectTriggers().filter((t) => t.getHandlerFunction() === "dailyBackup").forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger("dailyBackup").timeBased().everyDays(1).atHour(3).create();
+  dailyBackup();
+}
+
+// 在 Apps Script 編輯器執行：把整份試算表換回某個備份檔的內容（會先自動備份目前的狀態）
+function restoreBackup(fileId) {
+  if (!fileId) throw new Error("請帶入備份檔的 Id，例如 restoreBackup(\"1AbC...\")");
+  const res = UrlFetchApp.fetch(DRIVE_FILES + "/" + fileId + "?alt=media", driveOptions_({}));
+  if (res.getResponseCode() >= 300) throw new Error("讀不到這個備份檔（" + res.getResponseCode() + "）");
+  const snapshot = JSON.parse(res.getContentText("UTF-8"));
+  if (!snapshot || snapshot.app !== "WorkJournal") throw new Error("這不是工作週誌的備份檔");
+  backupNow_();
+  lock_();
+  try {
+    Object.keys(snapshot.sheets).forEach((name) => {
+      const rows = snapshot.sheets[name];
+      const s = sheet_(name);
+      s.clear();
+      if (!rows.length) return;
+      ensureSize_(s, rows.length, rows[0].length);
+      const range = s.getRange(1, 1, rows.length, rows[0].length);
+      range.setNumberFormat("@");
+      range.setValues(rows);
+    });
+    for (const k in memo_) delete memo_[k];
+  } finally {
+    releaseLock_();
+  }
+  console.log("已還原 " + snapshot.createdAt + " 的備份");
 }
 
 // ---------------------------------------------------------------- /settings
