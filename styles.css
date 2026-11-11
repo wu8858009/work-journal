@@ -839,7 +839,7 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
    進度說明和照片佔滿整列，打開就能看到大部分欄位，不必一直往下捲。 */
 .item-form > .form-field:not(:first-child) { margin-top: 14px; }
 .item-form .form-field .field-label { margin-top: 0; }
-@media (min-width: 900px) {
+@media (min-width: 700px) {
   .item-form {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -993,7 +993,8 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 .photo-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .photo-add-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--c-border); }
 .photo-add-btn svg { width: 16px; height: 16px; }
-.photo-stamp-row { margin: 0; font-size: 13px; color: var(--c-text-soft); align-self: center; }
+.photo-stamp-row { margin: 0 0 0 4px; padding: 0; border-bottom: none; flex-wrap: nowrap; font-size: 13px; color: var(--c-text-soft); align-self: center; }
+.photo-stamp-row span { flex: none; white-space: nowrap; color: var(--c-text-soft); }
 
 /* ---------- Photo editor ---------- */
 
@@ -1422,3 +1423,36 @@ button { transition: background-color .15s ease, filter .15s ease, transform .12
 }
 .offline-banner.hidden { display: none; }
 .offline-banner-uploading { background: var(--c-accent); }
+
+/* ---------- 手機、平板、桌面的版面調整 ----------
+   手機：標題列先保留登入者名稱，公司名稱放不下就截斷；很窄的手機只顯示人像圖示。
+   平板直式（600～899）：用滿整個螢幕寬，不再是置中的一條手機寬度。
+   大桌面（1280 以上）：內容區放寬到 1080，總覽和長項目名稱比較不會擠。 */
+.header-titles { flex: 1 1 auto; padding-right: 12px; }
+.header-user { flex-shrink: 0; }
+@media (max-width: 520px) {
+  .app-header { padding-left: 14px; padding-right: 12px; }
+  .header-actions { gap: 6px; }
+  .header-user { margin-right: 6px; }
+  .header-user-name { max-width: 96px; }
+}
+@media (max-width: 360px) {
+  .header-user { padding: 6px; }
+  .header-user-text { display: none; }
+}
+
+@media (max-width: 899px) {
+  :root { --app-max-width: 100%; }
+}
+@media (min-width: 600px) and (max-width: 899px) {
+  .view-root { padding-left: 24px; padding-right: 24px; }
+  .fab { right: 24px; }
+}
+
+@media (min-width: 1280px) {
+  .view-root { max-width: 1080px; }
+}
+/* 手機橫拿（螢幕很矮）：視窗盡量用滿高度，內容區才不會只剩一小條 */
+@media (max-height: 500px) {
+  .modal-sheet, .photo-editor-sheet { max-height: 94vh; max-height: 94dvh; }
+}
