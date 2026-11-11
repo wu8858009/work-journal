@@ -2096,9 +2096,16 @@ async function handleSwitchDepartment(name) {
 
 // 每間餐廳「最新一份」週誌。週誌每週會把上週未完成的項目複製過來，所以逾期、負責人
 // 工作量這類「目前狀態」只看最新一份，才不會把同一個項目重複算好幾次。
+// 在「餐廳管理」刪掉的餐廳，週誌會留著當紀錄，但總覽、逾期數字、匯出都不再算進去。
+// 餐廳清單還沒載入（例如一般使用者）時不過濾。
+function isActiveDepartment(name) {
+  return !state.departments.length || state.departments.some((d) => d.name === name);
+}
+
 function latestJournalByDepartment() {
   const map = new Map();
   for (const j of state.journals) {
+    if (!isActiveDepartment(j.department)) continue;
     const cur = map.get(j.department);
     if (!cur || j.periodStart > cur.periodStart) map.set(j.department, j);
   }
@@ -2107,7 +2114,7 @@ function latestJournalByDepartment() {
 
 function overviewDepartmentNames() {
   const names = new Set(state.departments.map((d) => d.name));
-  state.journals.forEach((j) => { if (j.department) names.add(j.department); });
+  if (!names.size) state.journals.forEach((j) => { if (j.department) names.add(j.department); });
   return [...names].sort((a, b) => a.localeCompare(b, "zh-Hant"));
 }
 
@@ -2342,7 +2349,7 @@ const XLSX_LIB = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.m
 async function exportOverviewExcel() {
   const ex = overviewExportOptions();
   const journals = state.journals
-    .filter((j) => (!ex.dept || j.department === ex.dept) && (!ex.from || j.periodStart >= ex.from) && (!ex.to || j.periodStart <= ex.to))
+    .filter((j) => isActiveDepartment(j.department) && (!ex.dept || j.department === ex.dept) && (!ex.from || j.periodStart >= ex.from) && (!ex.to || j.periodStart <= ex.to))
     .sort((a, b) => a.department.localeCompare(b.department, "zh-Hant") || a.periodStart.localeCompare(b.periodStart));
   if (!journals.length) {
     alert("這個日期範圍內沒有週誌");
