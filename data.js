@@ -32,6 +32,18 @@ function uid() {
   return "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 }
 
+const REMEMBER_DAYS = 30; // 跟 cloud/Code.gs 的 REMEMBER_DAYS 一致
+
+// 讀出登入憑證裡的到期時間等資訊（只是看，驗證由伺服器負責）；格式不對就回傳 null。
+function tokenClaims(token) {
+  try {
+    const s = String(token).split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(s + "===".slice((s.length + 3) % 4)));
+  } catch (e) {
+    return null;
+  }
+}
+
 const Auth = {
   TOKEN_KEY: "wj_token",
   USER_KEY: "wj_user",
@@ -120,7 +132,7 @@ const Auth = {
     let res = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        res = await apiRequest("POST", "/auth/login", { username, password });
+        res = await apiRequest("POST", "/auth/login", { username, password, remember: !!remember });
       } catch (e) {
         res = null;
       }
@@ -171,6 +183,32 @@ const Auth = {
     data.currentDepartment = matched;
     data.departmentMismatch = !!selectedDepartment && matched !== selectedDepartment;
     return data;
+  },
+
+  // 「記住我」的登入憑證 30 天到期：每天第一次開 App 跟伺服器換一張新的，有在用就一直保持登入。
+  // 改密碼、停用帳號後舊憑證照樣失效（換不到新的）。舊版後端沒有這個功能就安靜略過。
+  async renewRemembered() {
+    if (!CLOUD_URL || this._renewing) return;
+    let token;
+    try {
+      token = localStorage.getItem(this.TOKEN_KEY);
+    } catch (e) {
+      return;
+    }
+    if (!token) return;
+    const claims = tokenClaims(token);
+    if (claims && claims.r && claims.e - Date.now() > (REMEMBER_DAYS - 1) * 86400000) return;
+    this._renewing = true;
+    try {
+      const res = await apiRequest("POST", "/auth/refresh", null, token);
+      if (res.status === 200 && res.data && res.data.token && localStorage.getItem(this.TOKEN_KEY) === token) {
+        localStorage.setItem(this.TOKEN_KEY, res.data.token);
+      }
+    } catch (e) {
+      // 沒網路就等下次開 App 再換
+    } finally {
+      this._renewing = false;
+    }
   },
 
   logout() {

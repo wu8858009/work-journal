@@ -3298,6 +3298,7 @@ function startPresence() {
   // 分頁被瀏覽器降速後切回來，馬上補報一次並更新名單，不用等下一個計時。
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !Auth.isLoggedIn()) return;
+    Auth.renewRemembered();
     beat();
     if (!Store.usesCloud) refreshOnlineUsers();
     syncFromServer();
@@ -3500,6 +3501,7 @@ async function init() {
   wireEvents();
 
   if (Auth.isLoggedIn()) {
+    Auth.renewRemembered();
     try {
       await startApp();
     } catch (err) {

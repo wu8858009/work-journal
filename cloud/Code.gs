@@ -11,6 +11,7 @@
 
 const APP_VERSION = 1;
 const TOKEN_MINUTES = 480;            // 跟原本 Jwt:ExpireMinutes 一樣
+const REMEMBER_DAYS = 30;             // 勾「記住我」的登入期限；App 每天第一次開會換新的，有在用就不會過期
 const PRESENCE_WINDOW_MS = 75 * 1000; // 多久沒回報就視為離線
 const AUDIT_KEEP = 1000;              // 稽核紀錄最多保留幾筆（畫面只顯示最新 100 筆）
 const CHUNK = 45000;                  // 每格上限 5 萬字，大型 JSON 分段存在同一列的多個欄位
@@ -60,6 +61,7 @@ const noContent_ = () => ({ s: 204, b: null });
 // [方法, 路徑, 權限("public"|"user"|"admin"), 處理函式]
 const ROUTES = [
   ["POST", /^\/auth\/login$/, "public", (c) => login_(c.body)],
+  ["POST", /^\/auth\/refresh$/, "user", (c) => ok_({ token: createToken_(c.user, true) })],
   ["POST", /^\/auth\/register$/, "public", (c) => register_(c.body)],
   ["POST", /^\/auth\/signup$/, "public", (c) => signup_(c.body)],
   ["POST", /^\/auth\/forgot-password$/, "public", (c) => forgotPassword_(c.body)],
@@ -501,8 +503,11 @@ function tokenSecret_() {
   return utf8_(s);
 }
 
-function createToken_(user) {
-  const payload = b64Url_(utf8_(JSON.stringify({ u: user.id, v: user.tokenVersion, e: Date.now() + TOKEN_MINUTES * 60000 })));
+function createToken_(user, remember) {
+  const life = remember ? REMEMBER_DAYS * 86400000 : TOKEN_MINUTES * 60000;
+  const claims = { u: user.id, v: user.tokenVersion, e: Date.now() + life };
+  if (remember) claims.r = 1;
+  const payload = b64Url_(utf8_(JSON.stringify(claims)));
   return payload + "." + b64Url_(hmacSha256_(tokenSecret_(), utf8_(payload)));
 }
 
@@ -596,7 +601,7 @@ function login_(b) {
   const user = userByName_(b.username);
   if (!user || !verifyPassword_(b.password, user.passwordHash)) fail_(401, "帳號或密碼錯誤");
   if (!user.isApproved) fail_(403, "帳號尚待管理員審核，請等待核准後再登入");
-  return ok_({ token: createToken_(user), username: user.username, displayName: user.displayName, role: user.role, departments: resolveDepartments_(user) });
+  return ok_({ token: createToken_(user, !!b.remember), username: user.username, displayName: user.displayName, role: user.role, departments: resolveDepartments_(user) });
 }
 
 function register_(b) {
